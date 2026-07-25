@@ -1,0 +1,277 @@
+package com.example.ble_heartrate
+
+import android.Manifest
+import android.app.Activity
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.ServiceConnection
+import android.content.pm.PackageManager
+import android.graphics.Color
+import android.os.Build
+import android.os.Bundle
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import android.os.ParcelUuid
+import android.widget.ArrayAdapter
+import android.widget.Button
+import android.widget.EditText
+import android.widget.ListView
+import android.widget.TextView
+import android.widget.Toast
+
+class MainActivity : Activity() {
+
+    private lateinit var tvHeartRate: TextView
+    private lateinit var tvStatus: TextView
+    private lateinit var etThreshold: EditText
+    private lateinit var btnScan: Button
+    private lateinit var btnConnect: Button
+    private lateinit var btnDisconnect: Button
+    private lateinit var btnSetThreshold: Button
+    private lateinit var lvDevices: ListView
+
+    private var bluetoothAdapter: BluetoothAdapter? = null
+    private var scanning = false
+    private val scannedDevices = mutableListOf<BluetoothDevice>()
+    private val deviceNames = mutableListOf<String>()
+    private var selectedDevice: BluetoothDevice? = null
+    private lateinit var listAdapter: ArrayAdapter<String>
+
+    private var heartRateService: HeartRateService? = null
+    private var bound = false
+
+    companion object {
+        const val ACTION_HEART_RATE_UPDATE = "com.example.ble_heartrate.HEART_RATE_UPDATE"
+        const val EXTRA_HEART_RATE = "heart_rate"
+        const val EXTRA_STATUS = "status"
+        const val EXTRA_THRESHOLD_EXCEEDED = "threshold_exceeded"
+        private const val SCAN_PERIOD_MS = 10_000L
+        private const val REQUEST_PERMISSIONS = 1001
+    }
+
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            val binder = service as HeartRateService.LocalBinder
+            heartRateService = binder.getService()
+            bound = true
+            val saved = heartRateService?.getThreshold() ?: 0
+            if (saved > 0) etThreshold.setText(saved.toString())
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            heartRateService = null
+            bound = false
+        }
+    }
+
+    private val heartRateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            val hr = intent?.getIntExtra(EXTRA_HEART_RATE, -1) ?: -1
+            val status = intent?.getStringExtra(EXTRA_STATUS)
+            val exceeded = intent?.getBooleanExtra(EXTRA_THRESHOLD_EXCEEDED, false) ?: false
+
+            if (hr >= 0) {
+                tvHeartRate.text = getString(R.string.heart_rate_bpm, hr)
+                tvHeartRate.setTextColor(
+                    if (exceeded) Color.parseColor("#FF6D00") else Color.parseColor("#E53935")
+                )
+            }
+            status?.let { tvStatus.text = it }
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
+
+        tvHeartRate = findViewById(R.id.tvHeartRate)
+        tvStatus = findViewById(R.id.tvStatus)
+        etThreshold = findViewById(R.id.etThreshold)
+        btnScan = findViewById(R.id.btnScan)
+        btnConnect = findViewById(R.id.btnConnect)
+        btnDisconnect = findViewById(R.id.btnDisconnect)
+        btnSetThreshold = findViewById(R.id.btnSetThreshold)
+        lvDevices = findViewById(R.id.lvDevices)
+
+        listAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_activated_1, deviceNames)
+        lvDevices.adapter = listAdapter
+        lvDevices.choiceMode = ListView.CHOICE_MODE_SINGLE
+        lvDevices.setOnItemClickListener { _, _, position, _ ->
+            selectedDevice = scannedDevices[position]
+            tvStatus.text = getString(R.string.device_selected, deviceNames[position])
+        }
+
+        btnScan.setOnClickListener { if (scanning) stopScan() else startScan() }
+
+        btnConnect.setOnClickListener {
+            val device = selectedDevice
+            if (device != null) {
+                heartRateService?.connectToDevice(device)
+                tvStatus.text = getString(R.string.connecting)
+            } else {
+                Toast.makeText(this, R.string.select_device_first, Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        btnDisconnect.setOnClickListener {
+            heartRateService?.disconnect()
+        }
+
+        btnSetThreshold.setOnClickListener {
+            val input = etThreshold.text.toString().trim()
+            val threshold = input.toIntOrNull()
+            if (threshold != null && threshold > 0) {
+                heartRateService?.setThreshold(threshold)
+                Toast.makeText(this, getString(R.string.threshold_set, threshold), Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, R.string.invalid_threshold, Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        checkAndRequestPermissions()
+
+        val serviceIntent = Intent(this, HeartRateService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+        bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
+
+        val filter = IntentFilter(ACTION_HEART_RATE_UPDATE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(heartRateReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(heartRateReceiver, filter)
+        }
+    }
+
+    private fun startScan() {
+        val btManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        bluetoothAdapter = btManager.adapter
+
+        if (bluetoothAdapter == null || !bluetoothAdapter!!.isEnabled) {
+            Toast.makeText(this, R.string.enable_bluetooth, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        scannedDevices.clear()
+        deviceNames.clear()
+        listAdapter.notifyDataSetChanged()
+        selectedDevice = null
+
+        val scanner = bluetoothAdapter!!.bluetoothLeScanner ?: return
+        scanning = true
+        btnScan.text = getString(R.string.stop_scan)
+
+        val filters = listOf(
+            ScanFilter.Builder()
+                .setServiceUuid(ParcelUuid.fromString(HeartRateService.HEART_RATE_SERVICE_UUID))
+                .build()
+        )
+        val settings = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
+
+        scanner.startScan(filters, settings, leScanCallback)
+        Handler(Looper.getMainLooper()).postDelayed({ if (scanning) stopScan() }, SCAN_PERIOD_MS)
+    }
+
+    private fun stopScan() {
+        scanning = false
+        btnScan.text = getString(R.string.scan)
+        bluetoothAdapter?.bluetoothLeScanner?.stopScan(leScanCallback)
+    }
+
+    private val leScanCallback = object : ScanCallback() {
+        override fun onScanResult(callbackType: Int, result: ScanResult) {
+            val device = result.device
+            if (scannedDevices.none { it.address == device.address }) {
+                scannedDevices.add(device)
+                val name = getDeviceName(device)
+                deviceNames.add(name)
+                runOnUiThread { listAdapter.notifyDataSetChanged() }
+            }
+        }
+
+        override fun onScanFailed(errorCode: Int) {
+            runOnUiThread {
+                Toast.makeText(this@MainActivity, getString(R.string.scan_failed, errorCode), Toast.LENGTH_SHORT).show()
+                scanning = false
+                btnScan.text = getString(R.string.scan)
+            }
+        }
+    }
+
+    private fun getDeviceName(device: BluetoothDevice): String {
+        return if (hasBluetoothConnectPermission()) {
+            device.name ?: device.address
+        } else {
+            device.address
+        }
+    }
+
+    private fun hasBluetoothConnectPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+    }
+
+    private fun checkAndRequestPermissions() {
+        val required = buildList {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                add(Manifest.permission.BLUETOOTH_SCAN)
+                add(Manifest.permission.BLUETOOTH_CONNECT)
+            } else {
+                add(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
+        }
+        val missing = required.filter {
+            checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) {
+            requestPermissions(missing.toTypedArray(), REQUEST_PERMISSIONS)
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_PERMISSIONS) {
+            if (grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
+                Toast.makeText(this, R.string.permissions_required, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (bound) {
+            unbindService(serviceConnection)
+            bound = false
+        }
+        try {
+            unregisterReceiver(heartRateReceiver)
+        } catch (_: IllegalArgumentException) {
+            // not registered
+        }
+        if (scanning) stopScan()
+    }
+}

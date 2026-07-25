@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.BLEHeartRate" parent="android:Theme.Material.Light">
+        <item name="android:colorPrimary">#E53935</item>
+        <item name="android:colorPrimaryDark">#B71C1C</item>
+        <item name="android:colorAccent">#FF5252</item>
+        <item name="android:statusBarColor">#B71C1C</item>
+    </style>
+</resources>

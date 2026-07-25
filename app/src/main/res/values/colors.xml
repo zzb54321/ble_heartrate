@@ -1,0 +1,15 @@
+<resources>
+    <color name="primary">#E53935</color>
+    <color name="primary_dark">#B71C1C</color>
+    <color name="primary_light">#EF9A9A</color>
+    <color name="accent">#FF5252</color>
+    <color name="background">#F5F5F5</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="text_primary">#212121</color>
+    <color name="text_secondary">#757575</color>
+    <color name="heart_rate_normal">#E53935</color>
+    <color name="heart_rate_alert">#FF6D00</color>
+    <color name="device_item_selected">#FFEBEE</color>
+    <color name="white">#FFFFFF</color>
+    <color name="black">#000000</color>
+</resources>
