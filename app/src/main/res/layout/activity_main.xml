@@ -108,4 +108,24 @@
         android:layout_height="0dp"
         android:layout_weight="1" />
 
+    <!-- Debug error log — shown only on crash, text is selectable for copy-paste -->
+    <ScrollView
+        android:id="@+id/scrollError"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:maxHeight="160dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tvError"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="#FFEBEE"
+            android:textColor="#B71C1C"
+            android:textSize="11sp"
+            android:fontFamily="monospace"
+            android:padding="8dp"
+            android:textIsSelectable="true" />
+    </ScrollView>
+
 </LinearLayout>

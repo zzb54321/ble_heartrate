@@ -28,7 +28,11 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.ListView
 import android.widget.TextView
+import android.view.View
+import android.widget.ScrollView
 import android.widget.Toast
+import java.io.PrintWriter
+import java.io.StringWriter
 
 class MainActivity : Activity() {
 
@@ -40,6 +44,8 @@ class MainActivity : Activity() {
     private lateinit var btnDisconnect: Button
     private lateinit var btnSetThreshold: Button
     private lateinit var lvDevices: ListView
+    private lateinit var tvError: android.widget.TextView
+    private lateinit var scrollError: ScrollView
 
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var scanning = false
@@ -56,6 +62,8 @@ class MainActivity : Activity() {
         const val EXTRA_HEART_RATE = "heart_rate"
         const val EXTRA_STATUS = "status"
         const val EXTRA_THRESHOLD_EXCEEDED = "threshold_exceeded"
+        const val ACTION_SERVICE_ERROR = "com.example.ble_heartrate.SERVICE_ERROR"
+        const val EXTRA_ERROR = "error"
         private const val SCAN_PERIOD_MS = 10_000L
         private const val REQUEST_PERMISSIONS = 1001
     }
@@ -77,24 +85,57 @@ class MainActivity : Activity() {
 
     private val heartRateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            val hr = intent?.getIntExtra(EXTRA_HEART_RATE, -1) ?: -1
-            val status = intent?.getStringExtra(EXTRA_STATUS)
-            val exceeded = intent?.getBooleanExtra(EXTRA_THRESHOLD_EXCEEDED, false) ?: false
+            when (intent?.action) {
+                ACTION_SERVICE_ERROR -> {
+                    val err = intent.getStringExtra(EXTRA_ERROR) ?: "Unknown service error"
+                    showError("SERVICE ERROR:\n$err")
+                }
+                else -> {
+                    val hr = intent?.getIntExtra(EXTRA_HEART_RATE, -1) ?: -1
+                    val status = intent?.getStringExtra(EXTRA_STATUS)
+                    val exceeded = intent?.getBooleanExtra(EXTRA_THRESHOLD_EXCEEDED, false) ?: false
 
-            if (hr >= 0) {
-                tvHeartRate.text = getString(R.string.heart_rate_bpm, hr)
-                tvHeartRate.setTextColor(
-                    if (exceeded) Color.parseColor("#FF6D00") else Color.parseColor("#E53935")
-                )
+                    if (hr >= 0) {
+                        tvHeartRate.text = getString(R.string.heart_rate_bpm, hr)
+                        tvHeartRate.setTextColor(
+                            if (exceeded) Color.parseColor("#FF6D00") else Color.parseColor("#E53935")
+                        )
+                    }
+                    status?.let { tvStatus.text = it }
+                }
             }
-            status?.let { tvStatus.text = it }
         }
+    }
+
+    private fun showError(msg: String) {
+        runOnUiThread {
+            scrollError.visibility = View.VISIBLE
+            tvError.text = msg
+        }
+    }
+
+    private fun stackTrace(t: Throwable): String {
+        val sw = StringWriter()
+        t.printStackTrace(PrintWriter(sw))
+        return sw.toString()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        // Initialize error display first so it is available even if later init throws
+        tvError = findViewById(R.id.tvError)
+        scrollError = findViewById(R.id.scrollError)
+
+        try {
+            initUi()
+        } catch (t: Throwable) {
+            showError("ACTIVITY onCreate CRASH:\n" + stackTrace(t))
+        }
+    }
+
+    private fun initUi() {
         tvHeartRate = findViewById(R.id.tvHeartRate)
         tvStatus = findViewById(R.id.tvStatus)
         etThreshold = findViewById(R.id.etThreshold)
@@ -153,6 +194,15 @@ class MainActivity : Activity() {
         } else {
             @Suppress("UnspecifiedRegisterReceiverFlag")
             registerReceiver(heartRateReceiver, filter)
+        }
+
+        // Also register for service error broadcasts
+        val errFilter = IntentFilter(ACTION_SERVICE_ERROR)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(heartRateReceiver, errFilter, RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
+            registerReceiver(heartRateReceiver, errFilter)
         }
     }
 
@@ -251,14 +301,18 @@ class MainActivity : Activity() {
     }
 
     private fun startAndBindService() {
-        val serviceIntent = Intent(this, HeartRateService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
-        if (!bound) {
-            bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
+        try {
+            val serviceIntent = Intent(this, HeartRateService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent)
+            } else {
+                startService(serviceIntent)
+            }
+            if (!bound) {
+                bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
+            }
+        } catch (t: Throwable) {
+            showError("startAndBindService CRASH:\n" + stackTrace(t))
         }
     }
 

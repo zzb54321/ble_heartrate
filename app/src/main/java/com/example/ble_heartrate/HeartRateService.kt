@@ -22,6 +22,8 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.content.pm.ServiceInfo
+import java.io.PrintWriter
+import java.io.StringWriter
 import java.util.UUID
 
 /**
@@ -69,25 +71,38 @@ class HeartRateService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        prefs = getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        threshold = prefs.getInt(PREF_THRESHOLD, DEFAULT_THRESHOLD)
+        try {
+            prefs = getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+            threshold = prefs.getInt(PREF_THRESHOLD, DEFAULT_THRESHOLD)
 
-        notificationManager = getSystemService(NotificationManager::class.java)
-        vibrator = resolveVibrator()
+            notificationManager = getSystemService(NotificationManager::class.java)
+            vibrator = resolveVibrator()
 
-        createNotificationChannel()
-        // Android 14 (API 34) enforces that services with a declared foregroundServiceType
-        // must call the 3-argument startForeground() specifying the matching type;
-        // the constant FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE is available from API 31.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            startForeground(
-                NOTIFICATION_ID,
-                buildNotification(getString(R.string.notification_idle)),
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notification_idle)))
+            createNotificationChannel()
+            // Android 14 (API 34) enforces that services with a declared foregroundServiceType
+            // must call the 3-argument startForeground() specifying the matching type;
+            // the constant FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE is available from API 31.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    buildNotification(getString(R.string.notification_idle)),
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notification_idle)))
+            }
+        } catch (t: Throwable) {
+            broadcastError(t)
+            stopSelf()
         }
+    }
+
+    private fun broadcastError(t: Throwable) {
+        val sw = StringWriter()
+        t.printStackTrace(PrintWriter(sw))
+        sendBroadcast(Intent(MainActivity.ACTION_SERVICE_ERROR).apply {
+            putExtra(MainActivity.EXTRA_ERROR, "${t::class.java.name}: ${t.message}\n$sw")
+        })
     }
 
     override fun onBind(intent: Intent?): IBinder = binder

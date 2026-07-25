@@ -45,8 +45,8 @@ mkdir -p "$BUILD_DIR/gen"
     --java "$BUILD_DIR/gen" \
     --min-sdk-version 21 \
     --target-sdk-version 35 \
-    --version-code 1 \
-    --version-name "1.0" \
+    --version-code 3 \
+    --version-name "1.2" \
     -o "$BUILD_DIR/resources.apk"
 
 # ---------------------------------------------------------------------------
