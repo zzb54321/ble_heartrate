@@ -139,15 +139,13 @@ class MainActivity : Activity() {
             }
         }
 
-        checkAndRequestPermissions()
-
-        val serviceIntent = Intent(this, HeartRateService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
+        // On Android 14+, startForeground() with connectedDevice type requires BLUETOOTH_CONNECT
+        // to be granted; defer service startup until after permissions are obtained.
+        if (hasRequiredPermissions()) {
+            startAndBindService()
         } else {
-            startService(serviceIntent)
+            checkAndRequestPermissions()
         }
-        bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
 
         val filter = IntentFilter(ACTION_HEART_RATE_UPDATE)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -231,20 +229,36 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun checkAndRequestPermissions() {
-        val required = buildList {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                add(Manifest.permission.BLUETOOTH_SCAN)
-                add(Manifest.permission.BLUETOOTH_CONNECT)
-            } else {
-                add(Manifest.permission.ACCESS_FINE_LOCATION)
-            }
+    private fun requiredPermissions(): List<String> = buildList {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            add(Manifest.permission.BLUETOOTH_SCAN)
+            add(Manifest.permission.BLUETOOTH_CONNECT)
+        } else {
+            add(Manifest.permission.ACCESS_FINE_LOCATION)
         }
-        val missing = required.filter {
+    }
+
+    private fun hasRequiredPermissions(): Boolean =
+        requiredPermissions().all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+
+    private fun checkAndRequestPermissions() {
+        val missing = requiredPermissions().filter {
             checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isNotEmpty()) {
             requestPermissions(missing.toTypedArray(), REQUEST_PERMISSIONS)
+        }
+    }
+
+    private fun startAndBindService() {
+        val serviceIntent = Intent(this, HeartRateService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+        if (!bound) {
+            bindService(serviceIntent, serviceConnection, Context.BIND_AUTO_CREATE)
         }
     }
 
@@ -257,6 +271,9 @@ class MainActivity : Activity() {
         if (requestCode == REQUEST_PERMISSIONS) {
             if (grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
                 Toast.makeText(this, R.string.permissions_required, Toast.LENGTH_LONG).show()
+            } else {
+                // All permissions granted — safe to start the foreground service now
+                startAndBindService()
             }
         }
     }
