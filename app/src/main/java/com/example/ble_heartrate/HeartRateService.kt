@@ -21,6 +21,7 @@ import android.os.IBinder
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.content.pm.ServiceInfo
 import java.util.UUID
 
 /**
@@ -75,7 +76,18 @@ class HeartRateService : Service() {
         vibrator = resolveVibrator()
 
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notification_idle)))
+        // Android 14 (API 34) enforces that services with a declared foregroundServiceType
+        // must call the 3-argument startForeground() specifying the matching type;
+        // the constant FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE is available from API 31.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            startForeground(
+                NOTIFICATION_ID,
+                buildNotification(getString(R.string.notification_idle)),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notification_idle)))
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
