@@ -64,7 +64,7 @@ mkdir -p "$BUILD_DIR/gen"
     --manifest "$APP_SRC/AndroidManifest.xml" \
     "$BUILD_DIR/compiled_res"/*.flat \
     --java "$BUILD_DIR/gen" \
-    --min-sdk-version 21 \
+    --min-sdk-version 23 \
     --target-sdk-version 35 \
     --version-code "$VERSION_CODE" \
     --version-name "$VERSION_NAME" \

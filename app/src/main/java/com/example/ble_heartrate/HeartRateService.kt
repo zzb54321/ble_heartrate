@@ -104,6 +104,7 @@ class HeartRateService : Service() {
         val sw = StringWriter()
         t.printStackTrace(PrintWriter(sw))
         sendBroadcast(Intent(MainActivity.ACTION_SERVICE_ERROR).apply {
+            setPackage(packageName)
             putExtra(MainActivity.EXTRA_ERROR, "${t::class.java.name}: ${t.message}\n$sw")
         })
     }
@@ -281,6 +282,7 @@ class HeartRateService : Service() {
 
     private fun broadcastHeartRate(hr: Int, exceeded: Boolean) {
         sendBroadcast(Intent(MainActivity.ACTION_HEART_RATE_UPDATE).apply {
+            setPackage(packageName)
             putExtra(MainActivity.EXTRA_HEART_RATE, hr)
             putExtra(MainActivity.EXTRA_THRESHOLD_EXCEEDED, exceeded)
         })
@@ -288,6 +290,7 @@ class HeartRateService : Service() {
 
     private fun broadcastStatus(status: String) {
         sendBroadcast(Intent(MainActivity.ACTION_HEART_RATE_UPDATE).apply {
+            setPackage(packageName)
             putExtra(MainActivity.EXTRA_STATUS, status)
         })
     }

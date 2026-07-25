@@ -17,11 +17,14 @@ import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.location.LocationManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.provider.Settings
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -220,6 +223,15 @@ class MainActivity : Activity() {
             return
         }
 
+        // Before Android 12 the system silently returns zero scan results when the
+        // location master switch is off, which looks exactly like "no devices nearby".
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && !isLocationServiceEnabled()) {
+            Toast.makeText(this, R.string.enable_location_services, Toast.LENGTH_LONG).show()
+            tvStatus.text = getString(R.string.enable_location_services)
+            openLocationSettings()
+            return
+        }
+
         scannedDevices.clear()
         deviceNames.clear()
         listAdapter.notifyDataSetChanged()
@@ -235,6 +247,8 @@ class MainActivity : Activity() {
 
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+            .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
             .build()
 
         scanner.startScan(null, settings, leScanCallback)
@@ -243,6 +257,7 @@ class MainActivity : Activity() {
 
     @SuppressLint("MissingPermission")
     private fun stopScan() {
+        if (!scanning) return
         scanning = false
         btnScan.text = getString(R.string.scan)
         bluetoothAdapter?.bluetoothLeScanner?.stopScan(leScanCallback)
@@ -263,11 +278,18 @@ class MainActivity : Activity() {
             results.forEach(::addScanResult)
         }
 
+        @SuppressLint("MissingPermission")
         override fun onScanFailed(errorCode: Int) {
             runOnUiThread {
-                Toast.makeText(this@MainActivity, getString(R.string.scan_failed, errorCode), Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, getString(R.string.scan_failed, errorCode), Toast.LENGTH_LONG).show()
                 scanning = false
                 btnScan.text = getString(R.string.scan)
+                tvStatus.text = getString(R.string.scan_failed, errorCode)
+                try {
+                    bluetoothAdapter?.bluetoothLeScanner?.stopScan(this)
+                } catch (_: Exception) {
+                    // scanner already released
+                }
             }
         }
     }
@@ -334,15 +356,49 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Permissions that are nice to have but must not block scanning or the service. */
+    private fun optionalPermissions(): List<String> = buildList {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     private fun hasRequiredPermissions(): Boolean =
         requiredPermissions().all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
 
     private fun checkAndRequestPermissions() {
-        val missing = requiredPermissions().filter {
+        val missing = (requiredPermissions() + optionalPermissions()).filter {
             checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isNotEmpty()) {
             requestPermissions(missing.toTypedArray(), REQUEST_PERMISSIONS)
+        }
+    }
+
+    private fun isLocationServiceEnabled(): Boolean {
+        val lm = getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return true
+        return lm.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
+            lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+    }
+
+    private fun openLocationSettings() {
+        try {
+            startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
+        } catch (_: Exception) {
+            // Settings activity unavailable on this device
+        }
+    }
+
+    private fun openAppSettings() {
+        try {
+            startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", packageName, null)
+                )
+            )
+        } catch (_: Exception) {
+            // Settings activity unavailable on this device
         }
     }
 
@@ -369,11 +425,13 @@ class MainActivity : Activity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_PERMISSIONS) {
-            if (grantResults.isEmpty() || grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
-                Toast.makeText(this, R.string.permissions_required, Toast.LENGTH_LONG).show()
-            } else {
-                // All permissions granted — safe to start the foreground service now
+            // Optional permissions (e.g. notifications) must not prevent the service from starting.
+            if (hasRequiredPermissions()) {
                 startAndBindService()
+            } else {
+                Toast.makeText(this, R.string.permissions_required, Toast.LENGTH_LONG).show()
+                tvStatus.text = getString(R.string.permissions_required)
+                openAppSettings()
             }
         }
     }

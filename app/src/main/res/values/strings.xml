@@ -29,6 +29,7 @@
     <string name="invalid_threshold">Enter a valid BPM value (e.g. 100)</string>
     <string name="enable_bluetooth">Please enable Bluetooth</string>
     <string name="permissions_required">Bluetooth and location permissions are required</string>
+    <string name="enable_location_services">Turn on location services so Android can report BLE scan results</string>
     <string name="scanner_unavailable">Bluetooth LE scanner unavailable</string>
     <string name="no_ble_devices_found">No BLE devices found nearby</string>
     <string name="scan_failed">BLE scan failed (error %d)</string>
