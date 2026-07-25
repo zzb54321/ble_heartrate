@@ -55,7 +55,7 @@ class HeartRateService : Service() {
 
     private val binder = LocalBinder()
 
-    private var gatt: BluetoothGatt? = null
+    @Volatile private var gatt: BluetoothGatt? = null
     private var vibrator: Vibrator? = null
     private var isVibrating = false
 

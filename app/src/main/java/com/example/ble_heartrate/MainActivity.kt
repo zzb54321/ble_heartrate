@@ -209,7 +209,9 @@ class MainActivity : Activity() {
             checkAndRequestPermissions()
             return
         }
-        val btManager = getSystemService(BluetoothManager::class.java) ?: run {
+        // Use string-based getSystemService for API 21+ compatibility (Class<T> overload is API 23+)
+        @Suppress("DEPRECATION")
+        val btManager = getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager ?: run {
             Toast.makeText(this, R.string.enable_bluetooth, Toast.LENGTH_SHORT).show()
             return
         }
@@ -250,13 +252,20 @@ class MainActivity : Activity() {
     }
 
     private val leScanCallback = object : ScanCallback() {
+        @SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: ScanResult) {
+            // getDeviceName accesses device.name / device.address which require BLUETOOTH_CONNECT
+            // on API 31+; safe to call on a background thread since permissions were verified.
             val device = result.device
-            if (scannedDevices.none { it.address == device.address }) {
-                scannedDevices.add(device)
-                val name = getDeviceName(device)
-                deviceNames.add(name)
-                runOnUiThread { listAdapter.notifyDataSetChanged() }
+            val name = getDeviceName(device)
+            // All list mutations must happen on the main thread to prevent ConcurrentModificationException
+            // (startScan() clears the lists on the main thread while callbacks arrive on a Binder thread).
+            runOnUiThread {
+                if (scannedDevices.none { it.address == device.address }) {
+                    scannedDevices.add(device)
+                    deviceNames.add(name)
+                    listAdapter.notifyDataSetChanged()
+                }
             }
         }
 
