@@ -55,6 +55,10 @@ class MainActivity : Activity() {
     private lateinit var tvLiveReadings: TextView
     private lateinit var scrollLiveReadings: ScrollView
     private lateinit var rootContainer: View
+    private lateinit var etVibrationPeriod: EditText
+    private lateinit var lvRules: ListView
+    private lateinit var ruleAdapter: ArrayAdapter<String>
+    private val ruleLabels = mutableListOf<String>()
 
     private val liveReadings = ArrayDeque<String>()
     private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.US)
@@ -89,9 +93,7 @@ class MainActivity : Activity() {
             val binder = service as HeartRateService.LocalBinder
             heartRateService = binder.getService()
             bound = true
-            val saved = heartRateService?.getThreshold() ?: 0
-            if (saved > 0) etThreshold.setText(saved.toString())
-            updateThresholdInfo(saved)
+            refreshRules()
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -120,7 +122,11 @@ class MainActivity : Activity() {
                         )
                         appendLiveReading(hr, threshold, exceeded)
                     }
-                    if (threshold >= 0) updateThresholdInfo(threshold)
+                    if (exceeded && threshold > 0) {
+                        tvThresholdInfo.text = getString(R.string.threshold_alerting, threshold)
+                    } else if (threshold >= 0) {
+                        updateThresholdInfo(threshold)
+                    }
                     status?.let { tvStatus.text = it }
                 }
             }
@@ -168,13 +174,22 @@ class MainActivity : Activity() {
         tvLiveReadings = findViewById(R.id.tvLiveReadings)
         scrollLiveReadings = findViewById(R.id.scrollLiveReadings)
         rootContainer = findViewById(R.id.rootContainer)
+        etVibrationPeriod = findViewById(R.id.etVibrationPeriod)
+        lvRules = findViewById(R.id.lvRules)
         applyWindowInsets()
+
+        ruleAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, ruleLabels)
+        lvRules.adapter = ruleAdapter
+        lvRules.setOnItemClickListener { _, _, position, _ -> removeRuleAt(position) }
+        refreshRules()
 
         listAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_activated_1, deviceNames)
         lvDevices.adapter = listAdapter
         lvDevices.choiceMode = ListView.CHOICE_MODE_SINGLE
         lvDevices.setOnItemClickListener { _, _, position, _ ->
+            if (position !in scannedDevices.indices) return@setOnItemClickListener
             selectedDevice = scannedDevices[position]
+            lvDevices.setItemChecked(position, true)
             tvStatus.text = getString(R.string.device_selected, deviceNames[position])
         }
 
@@ -182,35 +197,28 @@ class MainActivity : Activity() {
 
         btnConnect.setOnClickListener {
             val device = selectedDevice
-            if (device != null) {
-                heartRateService?.connectToDevice(device)
-                tvStatus.text = getString(R.string.connecting)
-            } else {
+            if (device == null) {
                 Toast.makeText(this, R.string.select_device_first, Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
             }
+            val service = heartRateService
+            if (service == null) {
+                Toast.makeText(this, R.string.service_not_ready, Toast.LENGTH_SHORT).show()
+                startAndBindService()
+                return@setOnClickListener
+            }
+            // Connecting while a scan is running is unreliable on many chipsets, so the
+            // scan is stopped first — the discovered list is kept intact.
+            if (scanning) stopScan(keepStatus = true)
+            service.connectToDevice(device)
+            tvStatus.text = getString(R.string.connecting)
         }
 
         btnDisconnect.setOnClickListener {
             heartRateService?.disconnect()
         }
 
-        btnSetThreshold.setOnClickListener {
-            val input = etThreshold.text.toString().trim()
-            val threshold = input.toIntOrNull()
-            if (threshold != null && threshold > 0) {
-                val service = heartRateService
-                if (service == null) {
-                    Toast.makeText(this, R.string.service_not_ready, Toast.LENGTH_SHORT).show()
-                    startAndBindService()
-                } else {
-                    service.setThreshold(threshold)
-                    updateThresholdInfo(threshold)
-                    Toast.makeText(this, getString(R.string.threshold_set, threshold), Toast.LENGTH_SHORT).show()
-                }
-            } else {
-                Toast.makeText(this, R.string.invalid_threshold, Toast.LENGTH_SHORT).show()
-            }
-        }
+        btnSetThreshold.setOnClickListener { addRuleFromInput() }
 
         // On Android 14+, startForeground() with connectedDevice type requires BLUETOOTH_CONNECT
         // to be granted; defer service startup until after permissions are obtained.
@@ -288,11 +296,12 @@ class MainActivity : Activity() {
     }
 
     @SuppressLint("MissingPermission")
-    private fun stopScan() {
+    private fun stopScan(keepStatus: Boolean = false) {
         if (!scanning) return
         scanning = false
         btnScan.text = getString(R.string.scan)
         bluetoothAdapter?.bluetoothLeScanner?.stopScan(leScanCallback)
+        if (keepStatus) return
         tvStatus.text = if (scannedDevices.isEmpty()) {
             getString(R.string.no_ble_devices_found)
         } else {
@@ -359,8 +368,13 @@ class MainActivity : Activity() {
     private fun isPriorityDevice(name: String): Boolean =
         name.contains(PRIORITY_DEVICE_KEYWORD, ignoreCase = true)
 
-    /** Keep priority (vivo) devices first while preserving discovery order otherwise. */
+    /**
+     * Keep priority (vivo) devices first while preserving discovery order otherwise.
+     * Reordering is suspended once the user has picked a device so that entries do not
+     * shift under the finger while the scan is still running.
+     */
     private fun sortDevices() {
+        if (selectedDevice != null) return
         val order = scannedDevices.indices.sortedWith(
             compareByDescending<Int> { devicePriority[it] }.thenBy { it }
         )
@@ -380,6 +394,64 @@ class MainActivity : Activity() {
             val idx = scannedDevices.indexOfFirst { it.address == selected.address }
             if (idx >= 0) lvDevices.setItemChecked(idx, true)
         }
+    }
+
+    private fun addRuleFromInput() {
+        val bpm = etThreshold.text.toString().trim().toIntOrNull()
+        if (bpm == null || bpm <= 0) {
+            Toast.makeText(this, R.string.invalid_threshold, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val periodInput = etVibrationPeriod.text.toString().trim()
+        val period = if (periodInput.isEmpty()) {
+            HeartRateService.DEFAULT_PERIOD_MS
+        } else {
+            periodInput.toLongOrNull() ?: -1L
+        }
+        if (period < HeartRateService.MIN_PERIOD_MS || period > HeartRateService.MAX_PERIOD_MS) {
+            Toast.makeText(
+                this,
+                getString(
+                    R.string.invalid_period,
+                    HeartRateService.MIN_PERIOD_MS,
+                    HeartRateService.MAX_PERIOD_MS
+                ),
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+        val service = heartRateService
+        if (service == null) {
+            Toast.makeText(this, R.string.service_not_ready, Toast.LENGTH_SHORT).show()
+            startAndBindService()
+            return
+        }
+        service.addRule(HeartRateService.AlertRule(bpm, period))
+        refreshRules()
+        etThreshold.text.clear()
+        etVibrationPeriod.text.clear()
+        Toast.makeText(this, getString(R.string.rule_added, bpm, period), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun removeRuleAt(position: Int) {
+        val service = heartRateService ?: return
+        val rule = service.getRules().getOrNull(position) ?: return
+        service.removeRule(rule.bpm)
+        refreshRules()
+        Toast.makeText(this, getString(R.string.rule_removed, rule.bpm), Toast.LENGTH_SHORT).show()
+    }
+
+    /** Re-render the rule list and the threshold summary from the service state. */
+    private fun refreshRules() {
+        val rules = heartRateService?.getRules().orEmpty()
+        ruleLabels.clear()
+        if (rules.isEmpty()) {
+            ruleLabels.add(getString(R.string.no_rules))
+        } else {
+            rules.forEach { ruleLabels.add(getString(R.string.rule_item, it.bpm, it.periodMs)) }
+        }
+        ruleAdapter.notifyDataSetChanged()
+        updateThresholdInfo(rules.firstOrNull()?.bpm ?: 0)
     }
 
     private fun updateThresholdInfo(threshold: Int) {

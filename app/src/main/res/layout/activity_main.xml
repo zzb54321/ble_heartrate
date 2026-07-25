@@ -72,12 +72,20 @@
             android:padding="8dp" />
     </ScrollView>
 
-    <!-- Threshold Setting -->
+    <!-- Threshold Rules -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/threshold_rules"
+        android:textSize="14sp"
+        android:textColor="#757575"
+        android:layout_marginBottom="4dp" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginBottom="12dp"
+        android:layout_marginBottom="4dp"
         android:gravity="center_vertical">
 
         <EditText
@@ -90,12 +98,29 @@
             android:maxLength="3"
             android:layout_marginEnd="8dp" />
 
+        <EditText
+            android:id="@+id/etVibrationPeriod"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:hint="@string/vibration_period_hint"
+            android:inputType="number"
+            android:maxLength="4"
+            android:layout_marginEnd="8dp" />
+
         <Button
             android:id="@+id/btnSetThreshold"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/set" />
+            android:text="@string/add" />
     </LinearLayout>
+
+    <ListView
+        android:id="@+id/lvRules"
+        android:layout_width="match_parent"
+        android:layout_height="92dp"
+        android:background="#FFFFFF"
+        android:layout_marginBottom="12dp" />
 
     <!-- Scan / Connect Controls -->
     <LinearLayout

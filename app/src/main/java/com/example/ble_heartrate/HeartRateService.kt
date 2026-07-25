@@ -26,14 +26,16 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.content.pm.ServiceInfo
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.PrintWriter
 import java.io.StringWriter
 import java.util.UUID
 
 /**
  * Foreground service that manages the BLE GATT connection to a heart rate device,
- * monitors the received heart rate against a configurable threshold, and vibrates
- * continuously when the heart rate exceeds the threshold.
+ * monitors the received heart rate against a set of configurable thresholds, and
+ * vibrates with the frequency configured for the highest exceeded threshold.
  */
 class HeartRateService : Service() {
 
@@ -47,17 +49,44 @@ class HeartRateService : Service() {
 
         private const val PREF_NAME = "ble_heartrate_prefs"
         private const val PREF_THRESHOLD = "threshold"
+        private const val PREF_RULES = "threshold_rules"
         private const val DEFAULT_THRESHOLD = 100
 
-        // Vibration pattern: [delay, vibrate, pause, vibrate, pause …]
-        private val VIBRATION_PATTERN = longArrayOf(0L, 600L, 400L, 600L, 400L)
-        // Total duration of one pass over VIBRATION_PATTERN.
-        private val VIBRATION_PATTERN_DURATION_MS = VIBRATION_PATTERN.sum()
+        /** Bounds for the configurable vibration period (one buzz + one pause). */
+        const val MIN_PERIOD_MS = 200L
+        const val MAX_PERIOD_MS = 5_000L
+        const val DEFAULT_PERIOD_MS = 1_000L
+
         // Some OEM ROMs silently drop indefinitely repeating waveforms, so the pattern is
         // re-issued periodically instead of relying on the repeat index.
-        private const val VIBRATION_REARM_INTERVAL_MS = 200L
+        private const val VIBRATION_REARM_INTERVAL_MS = 100L
+        private const val VIBRATION_PULSES_PER_BURST = 3
 
         fun heartRateServiceParcelUuid(): ParcelUuid = ParcelUuid.fromString(HEART_RATE_SERVICE_UUID)
+    }
+
+    /**
+     * A heart-rate alert rule: once the measured rate goes above [bpm], vibrate with a
+     * cycle length of [periodMs] (shorter period = higher vibration frequency).
+     * The highest matching rule wins, so several rules can escalate the alert.
+     */
+    data class AlertRule(val bpm: Int, val periodMs: Long) {
+        fun normalized(): AlertRule =
+            AlertRule(bpm, periodMs.coerceIn(MIN_PERIOD_MS, MAX_PERIOD_MS))
+
+        /** Waveform for one burst: alternating buzz / pause of half the period each. */
+        fun pattern(): LongArray {
+            val safePeriod = periodMs.coerceIn(MIN_PERIOD_MS, MAX_PERIOD_MS)
+            val on = safePeriod / 2
+            val off = safePeriod - on
+            val pattern = LongArray(1 + VIBRATION_PULSES_PER_BURST * 2)
+            pattern[0] = 0L
+            for (i in 0 until VIBRATION_PULSES_PER_BURST) {
+                pattern[1 + i * 2] = on
+                pattern[2 + i * 2] = off
+            }
+            return pattern
+        }
     }
 
     inner class LocalBinder : Binder() {
@@ -72,14 +101,18 @@ class HeartRateService : Service() {
     private val vibrationHandler = Handler(Looper.getMainLooper())
     private val vibrationRunnable = object : Runnable {
         override fun run() {
+            val rule = activeRule ?: return
             if (!isVibrating) return
-            playVibrationPattern()
-            vibrationHandler.postDelayed(this, VIBRATION_PATTERN_DURATION_MS + VIBRATION_REARM_INTERVAL_MS)
+            val pattern = rule.pattern()
+            playVibrationPattern(pattern)
+            vibrationHandler.postDelayed(this, pattern.sum() + VIBRATION_REARM_INTERVAL_MS)
         }
     }
 
     private var currentHeartRate = 0
-    private var threshold = DEFAULT_THRESHOLD
+    /** Alert rules sorted ascending by BPM. */
+    private val rules = mutableListOf<AlertRule>()
+    @Volatile private var activeRule: AlertRule? = null
 
     private lateinit var prefs: SharedPreferences
     private lateinit var notificationManager: NotificationManager
@@ -92,7 +125,7 @@ class HeartRateService : Service() {
         super.onCreate()
         try {
             prefs = getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-            threshold = prefs.getInt(PREF_THRESHOLD, DEFAULT_THRESHOLD)
+            loadRules()
 
             notificationManager = getSystemService(NotificationManager::class.java)
             vibrator = resolveVibrator()
@@ -152,26 +185,51 @@ class HeartRateService : Service() {
         updateNotification(getString(R.string.notification_idle))
     }
 
-    /** Update the heart-rate threshold and persist it. */
-    fun setThreshold(bpm: Int) {
-        threshold = bpm
-        prefs.edit().putInt(PREF_THRESHOLD, bpm).apply()
-        // Re-evaluate vibration with the new threshold
+    /** Replace all alert rules and persist them. */
+    fun setRules(newRules: List<AlertRule>) {
+        rules.clear()
+        rules.addAll(
+            newRules.map { it.normalized() }
+                .filter { it.bpm > 0 }
+                .distinctBy { it.bpm }
+                .sortedBy { it.bpm }
+        )
+        saveRules()
+        // Re-evaluate vibration with the new rules
         evaluateThreshold()
         if (currentHeartRate > 0) {
-            broadcastHeartRate(currentHeartRate, threshold > 0 && currentHeartRate > threshold)
-            updateNotification(getString(R.string.notification_monitoring, currentHeartRate, threshold))
+            val active = activeRule
+            broadcastHeartRate(currentHeartRate, active != null)
+            updateNotification(
+                getString(R.string.notification_monitoring, currentHeartRate, lowestThreshold())
+            )
         }
     }
+
+    /** Add or replace a single rule (rules are keyed by BPM). */
+    fun addRule(rule: AlertRule) {
+        setRules(rules.filter { it.bpm != rule.bpm } + rule)
+    }
+
+    /** Remove the rule with the given BPM threshold. */
+    fun removeRule(bpm: Int) {
+        setRules(rules.filter { it.bpm != bpm })
+    }
+
+    /** Current alert rules, sorted ascending by BPM. */
+    fun getRules(): List<AlertRule> = rules.toList()
+
+    /** Lowest configured threshold (0 when no rule is configured). */
+    fun lowestThreshold(): Int = rules.firstOrNull()?.bpm ?: 0
+
+    /** Threshold of the rule that is currently triggering the alert (0 when idle). */
+    fun activeThreshold(): Int = activeRule?.bpm ?: 0
 
     /** Latest heart rate received from the device (0 when nothing received yet). */
     fun getCurrentHeartRate(): Int = currentHeartRate
 
     /** Whether the alert vibration is currently running. */
     fun isAlerting(): Boolean = isVibrating
-
-    /** Return the currently configured threshold (0 means none set). */
-    fun getThreshold(): Int = threshold
 
     // -------------------------------------------------------------------------
     // BLE GATT callback
@@ -248,10 +306,9 @@ class HeartRateService : Service() {
         val hr = parseHeartRate(value)
         currentHeartRate = hr
         evaluateThreshold()
-        val exceeded = threshold > 0 && hr > threshold
-        broadcastHeartRate(hr, exceeded)
+        broadcastHeartRate(hr, activeRule != null)
         updateNotification(
-            getString(R.string.notification_monitoring, hr, threshold)
+            getString(R.string.notification_monitoring, hr, lowestThreshold())
         )
     }
 
@@ -277,12 +334,17 @@ class HeartRateService : Service() {
     // -------------------------------------------------------------------------
 
     private fun evaluateThreshold() {
-        if (threshold <= 0 || currentHeartRate <= 0) return
-        if (currentHeartRate > threshold) {
-            startVibrating()
-        } else {
+        val matching = rules.lastOrNull { currentHeartRate > it.bpm }
+        if (matching == null || currentHeartRate <= 0) {
             stopVibrating()
+            return
         }
+        if (matching != activeRule) {
+            // A different rule took over — restart with its vibration frequency.
+            stopVibrating()
+            activeRule = matching
+        }
+        startVibrating()
     }
 
     private fun startVibrating() {
@@ -292,20 +354,21 @@ class HeartRateService : Service() {
             broadcastStatus(getString(R.string.vibrator_unavailable))
             return
         }
+        if (activeRule == null) return
         isVibrating = true
         vibrationHandler.removeCallbacks(vibrationRunnable)
         vibrationHandler.post(vibrationRunnable)
     }
 
-    private fun playVibrationPattern() {
+    private fun playVibrationPattern(pattern: LongArray) {
         val vib = vibrator ?: return
         // USAGE_ALARM keeps the alert audible/tactile even when the device is in
         // silent mode or the app is not in the foreground.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vib.vibrate(VibrationEffect.createWaveform(VIBRATION_PATTERN, -1), alarmAudioAttributes())
+            vib.vibrate(VibrationEffect.createWaveform(pattern, -1), alarmAudioAttributes())
         } else {
             @Suppress("DEPRECATION")
-            vib.vibrate(VIBRATION_PATTERN, -1, alarmAudioAttributes())
+            vib.vibrate(pattern, -1, alarmAudioAttributes())
         }
     }
 
@@ -317,6 +380,7 @@ class HeartRateService : Service() {
 
     private fun stopVibrating() {
         vibrationHandler.removeCallbacks(vibrationRunnable)
+        activeRule = null
         if (!isVibrating) return
         isVibrating = false
         vibrator?.cancel()
@@ -330,7 +394,7 @@ class HeartRateService : Service() {
         sendBroadcast(Intent(MainActivity.ACTION_HEART_RATE_UPDATE).apply {
             setPackage(packageName)
             putExtra(MainActivity.EXTRA_HEART_RATE, hr)
-            putExtra(MainActivity.EXTRA_THRESHOLD, threshold)
+            putExtra(MainActivity.EXTRA_THRESHOLD, if (exceeded) activeThreshold() else lowestThreshold())
             putExtra(MainActivity.EXTRA_THRESHOLD_EXCEEDED, exceeded)
         })
     }
@@ -412,6 +476,39 @@ class HeartRateService : Service() {
         broadcastStatus(getString(R.string.heart_rate_service_not_found))
         updateNotification(getString(R.string.notification_idle))
         gatt.disconnect()
+    }
+
+    /** Load rules from preferences, migrating the legacy single-threshold setting. */
+    private fun loadRules() {
+        rules.clear()
+        val json = prefs.getString(PREF_RULES, null)
+        if (json.isNullOrBlank()) {
+            val legacy = prefs.getInt(PREF_THRESHOLD, DEFAULT_THRESHOLD)
+            if (legacy > 0) rules.add(AlertRule(legacy, DEFAULT_PERIOD_MS))
+            saveRules()
+            return
+        }
+        try {
+            val array = JSONArray(json)
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                val bpm = obj.optInt("bpm", 0)
+                if (bpm <= 0) continue
+                rules.add(AlertRule(bpm, obj.optLong("periodMs", DEFAULT_PERIOD_MS)).normalized())
+            }
+        } catch (_: Exception) {
+            // Corrupted preference — fall back to no rules rather than crashing.
+            rules.clear()
+        }
+        rules.sortBy { it.bpm }
+    }
+
+    private fun saveRules() {
+        val array = JSONArray()
+        rules.forEach { rule ->
+            array.put(JSONObject().put("bpm", rule.bpm).put("periodMs", rule.periodMs))
+        }
+        prefs.edit().putString(PREF_RULES, array.toString()).apply()
     }
 
     private fun resolveVibrator(): Vibrator {

@@ -10,9 +10,15 @@
     <string name="connecting">Connecting…</string>
     <string name="subscribed">Subscribed to heart rate</string>
     <string name="threshold_label">Vibration threshold (BPM)</string>
-    <string name="threshold_hint">e.g. 100</string>
-    <string name="threshold_set">Threshold set to %d BPM</string>
-    <string name="set">Set</string>
+    <string name="threshold_hint">BPM e.g. 100</string>
+    <string name="vibration_period_hint">Cycle ms e.g. 1000</string>
+    <string name="threshold_rules">Threshold rules (tap to remove)</string>
+    <string name="add">Add</string>
+    <string name="rule_item">&gt; %1$d BPM  •  vibrate every %2$d ms</string>
+    <string name="rule_added">Rule added: &gt; %1$d BPM every %2$d ms</string>
+    <string name="rule_removed">Rule removed: &gt; %d BPM</string>
+    <string name="no_rules">No threshold rule configured</string>
+    <string name="invalid_period">Vibration cycle must be between %1$d and %2$d ms</string>
     <string name="scan">Scan</string>
     <string name="stop_scan">Stop Scan</string>
     <string name="scanning_devices">Scanning nearby BLE devices…</string>
@@ -40,7 +46,8 @@
     <string name="live_reading_item">%1$s  %2$d BPM</string>
     <string name="live_reading_item_alert">%1$s  %2$d BPM  ⚠ above %3$d</string>
     <string name="waiting_for_data">Waiting for heart rate data…</string>
-    <string name="threshold_current">Threshold: %d BPM</string>
+    <string name="threshold_current">Lowest threshold: %d BPM</string>
+    <string name="threshold_alerting">Alerting above %d BPM</string>
     <string name="threshold_none">Threshold: not set</string>
     <string name="bluetooth_device_icon">Bluetooth device</string>
 
