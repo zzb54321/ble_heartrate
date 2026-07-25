@@ -15,15 +15,24 @@
     <string name="set">Set</string>
     <string name="scan">Scan</string>
     <string name="stop_scan">Stop Scan</string>
+    <string name="scanning_devices">Scanning nearby BLE devices…</string>
+    <string name="scan_complete">Scan complete</string>
     <string name="connect">Connect</string>
     <string name="disconnect">Disconnect</string>
-    <string name="available_devices">Available Heart Rate Devices</string>
+    <string name="available_devices">Available BLE Devices</string>
     <string name="device_selected">Selected: %s</string>
+    <string name="device_list_item">%1$s • %2$s (%3$d dBm)</string>
+    <string name="ble_device_tag">BLE</string>
+    <string name="heart_rate_device_tag">Heart Rate</string>
+    <string name="heart_rate_device_found">Heart rate device found</string>
     <string name="select_device_first">Please select a device first</string>
     <string name="invalid_threshold">Enter a valid BPM value (e.g. 100)</string>
     <string name="enable_bluetooth">Please enable Bluetooth</string>
     <string name="permissions_required">Bluetooth and location permissions are required</string>
+    <string name="scanner_unavailable">Bluetooth LE scanner unavailable</string>
+    <string name="no_ble_devices_found">No BLE devices found nearby</string>
     <string name="scan_failed">BLE scan failed (error %d)</string>
+    <string name="heart_rate_service_not_found">Selected device does not provide Heart Rate service</string>
     <string name="bluetooth_device_icon">Bluetooth device</string>
 
     <!-- Notification -->

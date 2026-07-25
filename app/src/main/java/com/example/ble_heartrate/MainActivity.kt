@@ -7,7 +7,6 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.BroadcastReceiver
@@ -23,7 +22,6 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.os.ParcelUuid
 import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
@@ -227,20 +225,19 @@ class MainActivity : Activity() {
         listAdapter.notifyDataSetChanged()
         selectedDevice = null
 
-        val scanner = bluetoothAdapter!!.bluetoothLeScanner ?: return
+        val scanner = bluetoothAdapter!!.bluetoothLeScanner ?: run {
+            Toast.makeText(this, R.string.scanner_unavailable, Toast.LENGTH_SHORT).show()
+            return
+        }
         scanning = true
         btnScan.text = getString(R.string.stop_scan)
+        tvStatus.text = getString(R.string.scanning_devices)
 
-        val filters = listOf(
-            ScanFilter.Builder()
-                .setServiceUuid(ParcelUuid.fromString(HeartRateService.HEART_RATE_SERVICE_UUID))
-                .build()
-        )
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
 
-        scanner.startScan(filters, settings, leScanCallback)
+        scanner.startScan(null, settings, leScanCallback)
         Handler(Looper.getMainLooper()).postDelayed({ if (scanning) stopScan() }, SCAN_PERIOD_MS)
     }
 
@@ -249,24 +246,21 @@ class MainActivity : Activity() {
         scanning = false
         btnScan.text = getString(R.string.scan)
         bluetoothAdapter?.bluetoothLeScanner?.stopScan(leScanCallback)
+        tvStatus.text = if (scannedDevices.isEmpty()) {
+            getString(R.string.no_ble_devices_found)
+        } else {
+            getString(R.string.scan_complete)
+        }
     }
 
     private val leScanCallback = object : ScanCallback() {
         @SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: ScanResult) {
-            // getDeviceName accesses device.name / device.address which require BLUETOOTH_CONNECT
-            // on API 31+; safe to call on a background thread since permissions were verified.
-            val device = result.device
-            val name = getDeviceName(device)
-            // All list mutations must happen on the main thread to prevent ConcurrentModificationException
-            // (startScan() clears the lists on the main thread while callbacks arrive on a Binder thread).
-            runOnUiThread {
-                if (scannedDevices.none { it.address == device.address }) {
-                    scannedDevices.add(device)
-                    deviceNames.add(name)
-                    listAdapter.notifyDataSetChanged()
-                }
-            }
+            addScanResult(result)
+        }
+
+        override fun onBatchScanResults(results: MutableList<ScanResult>) {
+            results.forEach(::addScanResult)
         }
 
         override fun onScanFailed(errorCode: Int) {
@@ -278,12 +272,49 @@ class MainActivity : Activity() {
         }
     }
 
+    @SuppressLint("MissingPermission")
+    private fun addScanResult(result: ScanResult) {
+        // getDeviceName accesses device.name / device.address which require BLUETOOTH_CONNECT
+        // on API 31+; safe to call on a background thread since permissions were verified.
+        val device = result.device
+        val label = formatDeviceLabel(device, result)
+        val hrServiceUuid = HeartRateService.heartRateServiceParcelUuid()
+        val advertisesHeartRate = result.scanRecord?.serviceUuids?.contains(hrServiceUuid) == true
+        // All list mutations must happen on the main thread to prevent ConcurrentModificationException
+        // (startScan() clears the lists on the main thread while callbacks arrive on a Binder thread).
+        runOnUiThread {
+            val existingIndex = scannedDevices.indexOfFirst { it.address == device.address }
+            if (existingIndex >= 0) {
+                deviceNames[existingIndex] = label
+            } else {
+                scannedDevices.add(device)
+                deviceNames.add(label)
+            }
+            if (advertisesHeartRate) {
+                tvStatus.text = getString(R.string.heart_rate_device_found)
+            }
+            listAdapter.notifyDataSetChanged()
+        }
+    }
+
     private fun getDeviceName(device: BluetoothDevice): String {
         return if (hasBluetoothConnectPermission()) {
             device.name ?: device.address
         } else {
             device.address
         }
+    }
+
+    private fun formatDeviceLabel(device: BluetoothDevice, result: ScanResult): String {
+        val name = getDeviceName(device)
+        val hrServiceUuid = HeartRateService.heartRateServiceParcelUuid()
+        val advertisesHeartRate = result.scanRecord?.serviceUuids?.contains(hrServiceUuid) == true
+        val typeLabel = if (advertisesHeartRate) {
+            getString(R.string.heart_rate_device_tag)
+        } else {
+            getString(R.string.ble_device_tag)
+        }
+        return getString(R.string.device_list_item, typeLabel, name, result.rssi)
     }
 
     private fun hasBluetoothConnectPermission(): Boolean {

@@ -18,6 +18,7 @@ import android.content.SharedPreferences
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.ParcelUuid
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -47,6 +48,8 @@ class HeartRateService : Service() {
 
         // Vibration pattern: [delay, vibrate, pause, vibrate, pause …] repeat from index 0
         private val VIBRATION_PATTERN = longArrayOf(0L, 600L, 400L)
+
+        fun heartRateServiceParcelUuid(): ParcelUuid = ParcelUuid.fromString(HEART_RATE_SERVICE_UUID)
     }
 
     inner class LocalBinder : Binder() {
@@ -170,10 +173,11 @@ class HeartRateService : Service() {
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
             if (status != BluetoothGatt.GATT_SUCCESS) return
 
-            val hrChar = gatt
-                .getService(UUID.fromString(HEART_RATE_SERVICE_UUID))
-                ?.getCharacteristic(UUID.fromString(HEART_RATE_MEASUREMENT_UUID))
-                ?: return
+            val heartRateService = gatt.getService(UUID.fromString(HEART_RATE_SERVICE_UUID))
+                ?: return handleUnsupportedDevice(gatt)
+
+            val hrChar = heartRateService.getCharacteristic(UUID.fromString(HEART_RATE_MEASUREMENT_UUID))
+                ?: return handleUnsupportedDevice(gatt)
 
             // Enable local notifications
             gatt.setCharacteristicNotification(hrChar, true)
@@ -350,6 +354,14 @@ class HeartRateService : Service() {
             @Suppress("DEPRECATION")
             gatt.writeDescriptor(descriptor)
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun handleUnsupportedDevice(gatt: BluetoothGatt) {
+        stopVibrating()
+        broadcastStatus(getString(R.string.heart_rate_service_not_found))
+        updateNotification(getString(R.string.notification_idle))
+        gatt.disconnect()
     }
 
     private fun resolveVibrator(): Vibrator {

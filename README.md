@@ -5,7 +5,7 @@ supports a configurable vibration threshold, and can run in the background as a 
 
 ## Features
 
-- **BLE Scan** — Discovers nearby BLE devices that advertise the standard Heart Rate Service (UUID `0x180D`)
+- **BLE Scan** — Discovers nearby BLE devices and highlights devices that advertise the standard Heart Rate Service (UUID `0x180D`)
 - **Heart Rate Display** — Shows the live heart rate value in BPM; turns orange when the threshold is exceeded
 - **Vibration Threshold** — Set a BPM limit; the phone vibrates continuously whenever the heart rate exceeds the threshold and stops when it falls back below
 - **Background Operation** — A persistent foreground service keeps the BLE connection alive and monitors heart rate even when the app is minimised
@@ -61,7 +61,7 @@ The signed APK is placed at `app/release/ble_heartrate_debug.apk`.
 ## Usage
 
 1. Open the app and grant the requested Bluetooth (and location on Android < 12) permissions.
-2. Tap **Scan** — the app searches for BLE heart rate devices for 10 seconds.
+2. Tap **Scan** — the app searches for nearby BLE devices for 10 seconds and labels heart rate advertisers in the list.
 3. Tap a device in the list to select it, then tap **Connect**.
 4. Once connected and subscribed, the heart rate updates in real time.
 5. Enter a BPM threshold in the text field and tap **Set** — the phone will vibrate while the heart rate exceeds this value.
