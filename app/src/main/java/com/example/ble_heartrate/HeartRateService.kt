@@ -15,9 +15,12 @@ import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.media.AudioAttributes
 import android.os.Binder
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.ParcelUuid
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -46,8 +49,13 @@ class HeartRateService : Service() {
         private const val PREF_THRESHOLD = "threshold"
         private const val DEFAULT_THRESHOLD = 100
 
-        // Vibration pattern: [delay, vibrate, pause, vibrate, pause …] repeat from index 0
-        private val VIBRATION_PATTERN = longArrayOf(0L, 600L, 400L)
+        // Vibration pattern: [delay, vibrate, pause, vibrate, pause …]
+        private val VIBRATION_PATTERN = longArrayOf(0L, 600L, 400L, 600L, 400L)
+        // Total duration of one pass over VIBRATION_PATTERN.
+        private val VIBRATION_PATTERN_DURATION_MS = VIBRATION_PATTERN.sum()
+        // Some OEM ROMs silently drop indefinitely repeating waveforms, so the pattern is
+        // re-issued periodically instead of relying on the repeat index.
+        private const val VIBRATION_REARM_INTERVAL_MS = 200L
 
         fun heartRateServiceParcelUuid(): ParcelUuid = ParcelUuid.fromString(HEART_RATE_SERVICE_UUID)
     }
@@ -60,7 +68,15 @@ class HeartRateService : Service() {
 
     @Volatile private var gatt: BluetoothGatt? = null
     private var vibrator: Vibrator? = null
-    private var isVibrating = false
+    @Volatile private var isVibrating = false
+    private val vibrationHandler = Handler(Looper.getMainLooper())
+    private val vibrationRunnable = object : Runnable {
+        override fun run() {
+            if (!isVibrating) return
+            playVibrationPattern()
+            vibrationHandler.postDelayed(this, VIBRATION_PATTERN_DURATION_MS + VIBRATION_REARM_INTERVAL_MS)
+        }
+    }
 
     private var currentHeartRate = 0
     private var threshold = DEFAULT_THRESHOLD
@@ -142,7 +158,17 @@ class HeartRateService : Service() {
         prefs.edit().putInt(PREF_THRESHOLD, bpm).apply()
         // Re-evaluate vibration with the new threshold
         evaluateThreshold()
+        if (currentHeartRate > 0) {
+            broadcastHeartRate(currentHeartRate, threshold > 0 && currentHeartRate > threshold)
+            updateNotification(getString(R.string.notification_monitoring, currentHeartRate, threshold))
+        }
     }
+
+    /** Latest heart rate received from the device (0 when nothing received yet). */
+    fun getCurrentHeartRate(): Int = currentHeartRate
+
+    /** Whether the alert vibration is currently running. */
+    fun isAlerting(): Boolean = isVibrating
 
     /** Return the currently configured threshold (0 means none set). */
     fun getThreshold(): Int = threshold
@@ -261,16 +287,36 @@ class HeartRateService : Service() {
 
     private fun startVibrating() {
         if (isVibrating) return
+        val vib = vibrator
+        if (vib == null || !vib.hasVibrator()) {
+            broadcastStatus(getString(R.string.vibrator_unavailable))
+            return
+        }
         isVibrating = true
+        vibrationHandler.removeCallbacks(vibrationRunnable)
+        vibrationHandler.post(vibrationRunnable)
+    }
+
+    private fun playVibrationPattern() {
+        val vib = vibrator ?: return
+        // USAGE_ALARM keeps the alert audible/tactile even when the device is in
+        // silent mode or the app is not in the foreground.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator?.vibrate(VibrationEffect.createWaveform(VIBRATION_PATTERN, 0))
+            vib.vibrate(VibrationEffect.createWaveform(VIBRATION_PATTERN, -1), alarmAudioAttributes())
         } else {
             @Suppress("DEPRECATION")
-            vibrator?.vibrate(VIBRATION_PATTERN, 0)
+            vib.vibrate(VIBRATION_PATTERN, -1, alarmAudioAttributes())
         }
     }
 
+    private fun alarmAudioAttributes(): AudioAttributes =
+        AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_ALARM)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+
     private fun stopVibrating() {
+        vibrationHandler.removeCallbacks(vibrationRunnable)
         if (!isVibrating) return
         isVibrating = false
         vibrator?.cancel()
@@ -284,6 +330,7 @@ class HeartRateService : Service() {
         sendBroadcast(Intent(MainActivity.ACTION_HEART_RATE_UPDATE).apply {
             setPackage(packageName)
             putExtra(MainActivity.EXTRA_HEART_RATE, hr)
+            putExtra(MainActivity.EXTRA_THRESHOLD, threshold)
             putExtra(MainActivity.EXTRA_THRESHOLD_EXCEEDED, exceeded)
         })
     }

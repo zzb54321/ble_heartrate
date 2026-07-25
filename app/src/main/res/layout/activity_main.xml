@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootContainer"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -33,7 +34,43 @@
             android:textSize="14sp"
             android:textColor="#757575"
             android:layout_marginTop="4dp" />
+
+        <TextView
+            android:id="@+id/tvThresholdInfo"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/threshold_none"
+            android:textSize="13sp"
+            android:textColor="#9E9E9E"
+            android:layout_marginTop="2dp" />
     </LinearLayout>
+
+    <!-- Live heart rate readings -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/live_readings"
+        android:textSize="14sp"
+        android:textColor="#757575"
+        android:layout_marginBottom="4dp" />
+
+    <ScrollView
+        android:id="@+id/scrollLiveReadings"
+        android:layout_width="match_parent"
+        android:layout_height="96dp"
+        android:background="#FFFFFF"
+        android:layout_marginBottom="12dp">
+
+        <TextView
+            android:id="@+id/tvLiveReadings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/waiting_for_data"
+            android:textSize="13sp"
+            android:textColor="#424242"
+            android:fontFamily="monospace"
+            android:padding="8dp" />
+    </ScrollView>
 
     <!-- Threshold Setting -->
     <LinearLayout

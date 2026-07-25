@@ -35,6 +35,9 @@ import android.widget.ScrollView
 import android.widget.Toast
 import java.io.PrintWriter
 import java.io.StringWriter
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class MainActivity : Activity() {
 
@@ -48,11 +51,19 @@ class MainActivity : Activity() {
     private lateinit var lvDevices: ListView
     private lateinit var tvError: android.widget.TextView
     private lateinit var scrollError: ScrollView
+    private lateinit var tvThresholdInfo: TextView
+    private lateinit var tvLiveReadings: TextView
+    private lateinit var scrollLiveReadings: ScrollView
+    private lateinit var rootContainer: View
+
+    private val liveReadings = ArrayDeque<String>()
+    private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.US)
 
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var scanning = false
     private val scannedDevices = mutableListOf<BluetoothDevice>()
     private val deviceNames = mutableListOf<String>()
+    private val devicePriority = mutableListOf<Boolean>()
     private var selectedDevice: BluetoothDevice? = null
     private lateinit var listAdapter: ArrayAdapter<String>
 
@@ -66,8 +77,11 @@ class MainActivity : Activity() {
         const val EXTRA_THRESHOLD_EXCEEDED = "threshold_exceeded"
         const val ACTION_SERVICE_ERROR = "com.example.ble_heartrate.SERVICE_ERROR"
         const val EXTRA_ERROR = "error"
+        const val EXTRA_THRESHOLD = "threshold"
         private const val SCAN_PERIOD_MS = 10_000L
         private const val REQUEST_PERMISSIONS = 1001
+        private const val MAX_LIVE_READINGS = 50
+        private const val PRIORITY_DEVICE_KEYWORD = "vivo"
     }
 
     private val serviceConnection = object : ServiceConnection {
@@ -77,6 +91,7 @@ class MainActivity : Activity() {
             bound = true
             val saved = heartRateService?.getThreshold() ?: 0
             if (saved > 0) etThreshold.setText(saved.toString())
+            updateThresholdInfo(saved)
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -96,13 +111,16 @@ class MainActivity : Activity() {
                     val hr = intent?.getIntExtra(EXTRA_HEART_RATE, -1) ?: -1
                     val status = intent?.getStringExtra(EXTRA_STATUS)
                     val exceeded = intent?.getBooleanExtra(EXTRA_THRESHOLD_EXCEEDED, false) ?: false
+                    val threshold = intent?.getIntExtra(EXTRA_THRESHOLD, -1) ?: -1
 
                     if (hr >= 0) {
                         tvHeartRate.text = getString(R.string.heart_rate_bpm, hr)
                         tvHeartRate.setTextColor(
                             if (exceeded) Color.parseColor("#FF6D00") else Color.parseColor("#E53935")
                         )
+                        appendLiveReading(hr, threshold, exceeded)
                     }
+                    if (threshold >= 0) updateThresholdInfo(threshold)
                     status?.let { tvStatus.text = it }
                 }
             }
@@ -146,6 +164,11 @@ class MainActivity : Activity() {
         btnDisconnect = findViewById(R.id.btnDisconnect)
         btnSetThreshold = findViewById(R.id.btnSetThreshold)
         lvDevices = findViewById(R.id.lvDevices)
+        tvThresholdInfo = findViewById(R.id.tvThresholdInfo)
+        tvLiveReadings = findViewById(R.id.tvLiveReadings)
+        scrollLiveReadings = findViewById(R.id.scrollLiveReadings)
+        rootContainer = findViewById(R.id.rootContainer)
+        applyWindowInsets()
 
         listAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_activated_1, deviceNames)
         lvDevices.adapter = listAdapter
@@ -175,8 +198,15 @@ class MainActivity : Activity() {
             val input = etThreshold.text.toString().trim()
             val threshold = input.toIntOrNull()
             if (threshold != null && threshold > 0) {
-                heartRateService?.setThreshold(threshold)
-                Toast.makeText(this, getString(R.string.threshold_set, threshold), Toast.LENGTH_SHORT).show()
+                val service = heartRateService
+                if (service == null) {
+                    Toast.makeText(this, R.string.service_not_ready, Toast.LENGTH_SHORT).show()
+                    startAndBindService()
+                } else {
+                    service.setThreshold(threshold)
+                    updateThresholdInfo(threshold)
+                    Toast.makeText(this, getString(R.string.threshold_set, threshold), Toast.LENGTH_SHORT).show()
+                }
             } else {
                 Toast.makeText(this, R.string.invalid_threshold, Toast.LENGTH_SHORT).show()
             }
@@ -234,6 +264,8 @@ class MainActivity : Activity() {
 
         scannedDevices.clear()
         deviceNames.clear()
+        devicePriority.clear()
+        lvDevices.clearChoices()
         listAdapter.notifyDataSetChanged()
         selectedDevice = null
 
@@ -302,21 +334,111 @@ class MainActivity : Activity() {
         val label = formatDeviceLabel(device, result)
         val hrServiceUuid = HeartRateService.heartRateServiceParcelUuid()
         val advertisesHeartRate = result.scanRecord?.serviceUuids?.contains(hrServiceUuid) == true
+        val priority = isPriorityDevice(getDeviceName(device))
         // All list mutations must happen on the main thread to prevent ConcurrentModificationException
         // (startScan() clears the lists on the main thread while callbacks arrive on a Binder thread).
         runOnUiThread {
             val existingIndex = scannedDevices.indexOfFirst { it.address == device.address }
             if (existingIndex >= 0) {
                 deviceNames[existingIndex] = label
+                devicePriority[existingIndex] = priority
             } else {
                 scannedDevices.add(device)
                 deviceNames.add(label)
+                devicePriority.add(priority)
             }
             if (advertisesHeartRate) {
                 tvStatus.text = getString(R.string.heart_rate_device_found)
             }
+            sortDevices()
             listAdapter.notifyDataSetChanged()
         }
+    }
+
+    /** Devices whose name contains "vivo" are pinned to the top of the list. */
+    private fun isPriorityDevice(name: String): Boolean =
+        name.contains(PRIORITY_DEVICE_KEYWORD, ignoreCase = true)
+
+    /** Keep priority (vivo) devices first while preserving discovery order otherwise. */
+    private fun sortDevices() {
+        val order = scannedDevices.indices.sortedWith(
+            compareByDescending<Int> { devicePriority[it] }.thenBy { it }
+        )
+        if (order == scannedDevices.indices.toList()) return
+
+        val devices = order.map { scannedDevices[it] }
+        val names = order.map { deviceNames[it] }
+        val priorities = order.map { devicePriority[it] }
+
+        scannedDevices.clear(); scannedDevices.addAll(devices)
+        deviceNames.clear(); deviceNames.addAll(names)
+        devicePriority.clear(); devicePriority.addAll(priorities)
+
+        val selected = selectedDevice
+        lvDevices.clearChoices()
+        if (selected != null) {
+            val idx = scannedDevices.indexOfFirst { it.address == selected.address }
+            if (idx >= 0) lvDevices.setItemChecked(idx, true)
+        }
+    }
+
+    private fun updateThresholdInfo(threshold: Int) {
+        tvThresholdInfo.text = if (threshold > 0) {
+            getString(R.string.threshold_current, threshold)
+        } else {
+            getString(R.string.threshold_none)
+        }
+    }
+
+    /** Append the newest heart rate sample to the live reading log. */
+    private fun appendLiveReading(hr: Int, threshold: Int, exceeded: Boolean) {
+        val time = timeFormat.format(Date())
+        val line = if (exceeded && threshold > 0) {
+            getString(R.string.live_reading_item_alert, time, hr, threshold)
+        } else {
+            getString(R.string.live_reading_item, time, hr)
+        }
+        liveReadings.addLast(line)
+        while (liveReadings.size > MAX_LIVE_READINGS) liveReadings.removeFirst()
+        tvLiveReadings.text = liveReadings.joinToString("\n")
+        scrollLiveReadings.post { scrollLiveReadings.fullScroll(View.FOCUS_DOWN) }
+    }
+
+    /**
+     * Android 15 lays activities out edge-to-edge, which makes the status bar / title bar
+     * overlap the first rows of content. Add the system bar insets to the base padding.
+     */
+    private fun applyWindowInsets() {
+        val basePadding = rootContainer.paddingTop
+        rootContainer.setOnApplyWindowInsetsListener { view, insets ->
+            val top: Int
+            val bottom: Int
+            val left: Int
+            val right: Int
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val bars = insets.getInsets(
+                    android.view.WindowInsets.Type.systemBars() or
+                        android.view.WindowInsets.Type.displayCutout()
+                )
+                top = bars.top; bottom = bars.bottom; left = bars.left; right = bars.right
+            } else {
+                @Suppress("DEPRECATION")
+                run {
+                    top = insets.systemWindowInsetTop
+                    bottom = insets.systemWindowInsetBottom
+                    left = insets.systemWindowInsetLeft
+                    right = insets.systemWindowInsetRight
+                }
+            }
+            view.setPadding(
+                basePadding + left,
+                basePadding + top,
+                basePadding + right,
+                basePadding + bottom
+            )
+            insets
+        }
+        rootContainer.requestApplyInsets()
     }
 
     private fun getDeviceName(device: BluetoothDevice): String {

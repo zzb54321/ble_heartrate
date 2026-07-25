@@ -4,5 +4,8 @@
         <item name="android:colorPrimaryDark">#B71C1C</item>
         <item name="android:colorAccent">#FF5252</item>
         <item name="android:statusBarColor">#B71C1C</item>
+        <!-- Android 15 (API 35) forces edge-to-edge layouts; opt out so the action bar
+             and status bar do not draw on top of the app content. -->
+        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
     </style>
 </resources>
