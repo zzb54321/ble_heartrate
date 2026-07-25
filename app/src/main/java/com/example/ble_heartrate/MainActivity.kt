@@ -1,6 +1,7 @@
 package com.example.ble_heartrate
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
@@ -188,26 +189,30 @@ class MainActivity : Activity() {
             checkAndRequestPermissions()
         }
 
-        val filter = IntentFilter(ACTION_HEART_RATE_UPDATE)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(heartRateReceiver, filter, RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(heartRateReceiver, filter)
+        // Register a single instance with both actions to avoid double-registration / leak
+        val combinedFilter = IntentFilter().apply {
+            addAction(ACTION_HEART_RATE_UPDATE)
+            addAction(ACTION_SERVICE_ERROR)
         }
-
-        // Also register for service error broadcasts
-        val errFilter = IntentFilter(ACTION_SERVICE_ERROR)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(heartRateReceiver, errFilter, RECEIVER_NOT_EXPORTED)
+            registerReceiver(heartRateReceiver, combinedFilter, RECEIVER_NOT_EXPORTED)
         } else {
             @Suppress("UnspecifiedRegisterReceiverFlag")
-            registerReceiver(heartRateReceiver, errFilter)
+            registerReceiver(heartRateReceiver, combinedFilter)
         }
     }
 
+    @SuppressLint("MissingPermission")
     private fun startScan() {
-        val btManager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        if (!hasRequiredPermissions()) {
+            Toast.makeText(this, R.string.permissions_required, Toast.LENGTH_SHORT).show()
+            checkAndRequestPermissions()
+            return
+        }
+        val btManager = getSystemService(BluetoothManager::class.java) ?: run {
+            Toast.makeText(this, R.string.enable_bluetooth, Toast.LENGTH_SHORT).show()
+            return
+        }
         bluetoothAdapter = btManager.adapter
 
         if (bluetoothAdapter == null || !bluetoothAdapter!!.isEnabled) {
@@ -237,6 +242,7 @@ class MainActivity : Activity() {
         Handler(Looper.getMainLooper()).postDelayed({ if (scanning) stopScan() }, SCAN_PERIOD_MS)
     }
 
+    @SuppressLint("MissingPermission")
     private fun stopScan() {
         scanning = false
         btnScan.text = getString(R.string.scan)
@@ -323,7 +329,7 @@ class MainActivity : Activity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == REQUEST_PERMISSIONS) {
-            if (grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
+            if (grantResults.isEmpty() || grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
                 Toast.makeText(this, R.string.permissions_required, Toast.LENGTH_LONG).show()
             } else {
                 // All permissions granted — safe to start the foreground service now

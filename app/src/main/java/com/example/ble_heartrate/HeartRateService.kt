@@ -92,7 +92,7 @@ class HeartRateService : Service() {
                 startForeground(NOTIFICATION_ID, buildNotification(getString(R.string.notification_idle)))
             }
         } catch (t: Throwable) {
-            broadcastError(t)
+            try { broadcastError(t) } catch (_: Throwable) {}
             stopSelf()
         }
     }
