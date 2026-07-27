@@ -43,6 +43,9 @@
     <string name="vibrator_unavailable">This device has no vibrator</string>
     <string name="service_not_ready">Monitoring service is still starting, please retry</string>
     <string name="live_readings">Live heart rate readings</string>
+    <string name="heart_rate_chart">Heart rate chart</string>
+    <string name="section_expanded">▾ %s</string>
+    <string name="section_collapsed">▸ %s</string>
     <string name="live_reading_item">%1$s  %2$d BPM</string>
     <string name="live_reading_item_alert">%1$s  %2$d BPM  ⚠ above %3$d</string>
     <string name="waiting_for_data">Waiting for heart rate data…</string>

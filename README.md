@@ -9,6 +9,8 @@ supports a configurable vibration threshold, and can run in the background as a 
 - **Heart Rate Display** — Shows the live heart rate value in BPM; turns orange when the threshold is exceeded
 - **Vibration Threshold** — Set a BPM limit; the phone vibrates continuously whenever the heart rate exceeds the threshold and stops when it falls back below
 - **Optional Alerts** — Independently switchable extras that trigger while the heart rate is above a threshold: an alert tone that beeps at the configured vibration frequency, a red border drawn around the screen (requires the "display over other apps" permission), and an alerting app background colour
+- **Heart Rate Chart** — A collapsible line chart plots the most recent samples together with a dashed threshold reference line
+- **Scrollable, Collapsible UI** — The whole screen scrolls, and the chart, the live log and the alert options can be collapsed; the state is remembered between launches
 - **Background Operation** — A persistent foreground service keeps the BLE connection alive and monitors heart rate even when the app is minimised
 - **Threshold Persistence** — The threshold is saved to SharedPreferences and restored automatically on the next launch
 
@@ -57,6 +59,7 @@ The signed APK is placed at `app/release/ble_heartrate_debug.apk`.
 | Component | Description |
 |---|---|
 | `MainActivity` | UI: scan, device list, heart-rate display, threshold input |
+| `HeartRateChartView` | Custom view that draws the recent heart-rate samples as a line chart |
 | `HeartRateService` | Foreground service: BLE GATT connection, notifications subscription, threshold evaluation, vibration control |
 
 ## Usage

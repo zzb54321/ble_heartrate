@@ -61,6 +61,12 @@ class MainActivity : Activity() {
     private lateinit var cbAlertSound: CheckBox
     private lateinit var cbAlertOverlay: CheckBox
     private lateinit var cbAlertBackground: CheckBox
+    private lateinit var chartHeartRate: HeartRateChartView
+    private lateinit var headerChart: TextView
+    private lateinit var headerLiveReadings: TextView
+    private lateinit var headerAlertOptions: TextView
+    private lateinit var alertOptionsContainer: View
+    private lateinit var uiPrefs: android.content.SharedPreferences
     private var backgroundAlertEnabled = false
     private lateinit var ruleAdapter: ArrayAdapter<String>
     private val ruleLabels = mutableListOf<String>()
@@ -94,6 +100,10 @@ class MainActivity : Activity() {
         private const val REQUEST_OVERLAY_PERMISSION = 1002
         private const val COLOR_BACKGROUND_NORMAL = "#F5F5F5"
         private const val COLOR_BACKGROUND_ALERT = "#FFCDD2"
+        private const val UI_PREF_NAME = "ble_heartrate_ui_prefs"
+        private const val PREF_CHART_EXPANDED = "chart_expanded"
+        private const val PREF_LOG_EXPANDED = "log_expanded"
+        private const val PREF_OPTIONS_EXPANDED = "options_expanded"
     }
 
     private val serviceConnection = object : ServiceConnection {
@@ -130,6 +140,7 @@ class MainActivity : Activity() {
                             if (exceeded) Color.parseColor("#FF6D00") else Color.parseColor("#E53935")
                         )
                         appendLiveReading(hr, threshold, exceeded)
+                        chartHeartRate.addValue(hr)
                         applyAlertBackground(exceeded)
                     }
                     if (exceeded && threshold > 0) {
@@ -189,6 +200,15 @@ class MainActivity : Activity() {
         cbAlertSound = findViewById(R.id.cbAlertSound)
         cbAlertOverlay = findViewById(R.id.cbAlertOverlay)
         cbAlertBackground = findViewById(R.id.cbAlertBackground)
+        chartHeartRate = findViewById(R.id.chartHeartRate)
+        headerChart = findViewById(R.id.headerChart)
+        headerLiveReadings = findViewById(R.id.headerLiveReadings)
+        headerAlertOptions = findViewById(R.id.headerAlertOptions)
+        alertOptionsContainer = findViewById(R.id.alertOptionsContainer)
+        uiPrefs = getSharedPreferences(UI_PREF_NAME, Context.MODE_PRIVATE)
+        setupCollapsibleSections()
+        allowInnerListScrolling(lvRules)
+        allowInnerListScrolling(lvDevices)
         setupAlertOptions()
         applyWindowInsets()
 
@@ -455,6 +475,53 @@ class MainActivity : Activity() {
         Toast.makeText(this, getString(R.string.rule_removed, rule.bpm), Toast.LENGTH_SHORT).show()
     }
 
+    /**
+     * Wire the three collapsible sections (chart, live log, alert options) and restore
+     * the last expand/collapse state.
+     */
+    private fun setupCollapsibleSections() {
+        bindSection(headerChart, chartHeartRate, R.string.heart_rate_chart, PREF_CHART_EXPANDED)
+        bindSection(headerLiveReadings, scrollLiveReadings, R.string.live_readings, PREF_LOG_EXPANDED)
+        bindSection(headerAlertOptions, alertOptionsContainer, R.string.alert_options, PREF_OPTIONS_EXPANDED)
+    }
+
+    private fun bindSection(header: TextView, content: View, titleRes: Int, prefKey: String) {
+        var expanded = uiPrefs.getBoolean(prefKey, true)
+        applySectionState(header, content, titleRes, expanded)
+        header.setOnClickListener {
+            expanded = !expanded
+            uiPrefs.edit().putBoolean(prefKey, expanded).apply()
+            applySectionState(header, content, titleRes, expanded)
+        }
+    }
+
+    private fun applySectionState(header: TextView, content: View, titleRes: Int, expanded: Boolean) {
+        val title = getString(titleRes)
+        header.text = if (expanded) {
+            getString(R.string.section_expanded, title)
+        } else {
+            getString(R.string.section_collapsed, title)
+        }
+        content.visibility = if (expanded) View.VISIBLE else View.GONE
+    }
+
+    /**
+     * The layout is inside a ScrollView, so the parent must stop intercepting touches
+     * while a nested list is being dragged, otherwise the inner list cannot scroll.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun allowInnerListScrolling(list: ListView) {
+        list.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                android.view.MotionEvent.ACTION_DOWN,
+                android.view.MotionEvent.ACTION_MOVE ->
+                    view.parent?.requestDisallowInterceptTouchEvent(true)
+                else -> view.parent?.requestDisallowInterceptTouchEvent(false)
+            }
+            false
+        }
+    }
+
     private fun setupAlertOptions() {
         cbAlertSound.setOnClickListener {
             val service = heartRateService
@@ -557,6 +624,7 @@ class MainActivity : Activity() {
     }
 
     private fun updateThresholdInfo(threshold: Int) {
+        chartHeartRate.setThreshold(threshold)
         tvThresholdInfo.text = if (threshold > 0) {
             getString(R.string.threshold_current, threshold)
         } else {

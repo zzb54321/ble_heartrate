@@ -1,224 +1,266 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- The whole screen scrolls so that every control stays reachable on small displays. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/rootContainer"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:padding="16dp"
+    android:fillViewport="true"
     android:background="#F5F5F5">
 
-    <!-- Heart Rate Display -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:gravity="center"
-        android:background="#FFFFFF"
-        android:padding="16dp"
-        android:layout_marginBottom="12dp">
+        android:orientation="vertical">
 
-        <TextView
-            android:id="@+id/tvHeartRate"
-            android:layout_width="wrap_content"
+        <!-- Heart Rate Display -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/heart_rate_default"
-            android:textSize="64sp"
-            android:textStyle="bold"
-            android:textColor="#E53935" />
+            android:orientation="vertical"
+            android:gravity="center"
+            android:background="#FFFFFF"
+            android:padding="16dp"
+            android:layout_marginBottom="12dp">
 
+            <TextView
+                android:id="@+id/tvHeartRate"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/heart_rate_default"
+                android:textSize="64sp"
+                android:textStyle="bold"
+                android:textColor="#E53935" />
+
+            <TextView
+                android:id="@+id/tvStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/not_connected"
+                android:textSize="14sp"
+                android:textColor="#757575"
+                android:layout_marginTop="4dp" />
+
+            <TextView
+                android:id="@+id/tvThresholdInfo"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/threshold_none"
+                android:textSize="13sp"
+                android:textColor="#9E9E9E"
+                android:layout_marginTop="2dp" />
+        </LinearLayout>
+
+        <!-- Heart rate chart (collapsible) -->
         <TextView
-            android:id="@+id/tvStatus"
-            android:layout_width="wrap_content"
+            android:id="@+id/headerChart"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/not_connected"
+            android:text="@string/heart_rate_chart"
             android:textSize="14sp"
             android:textColor="#757575"
-            android:layout_marginTop="4dp" />
+            android:padding="6dp"
+            android:background="#EEEEEE"
+            android:layout_marginBottom="4dp" />
 
+        <com.example.ble_heartrate.HeartRateChartView
+            android:id="@+id/chartHeartRate"
+            android:layout_width="match_parent"
+            android:layout_height="140dp"
+            android:background="#FFFFFF"
+            android:padding="4dp"
+            android:layout_marginBottom="12dp" />
+
+        <!-- Live heart rate readings (collapsible) -->
         <TextView
-            android:id="@+id/tvThresholdInfo"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/threshold_none"
-            android:textSize="13sp"
-            android:textColor="#9E9E9E"
-            android:layout_marginTop="2dp" />
-    </LinearLayout>
-
-    <!-- Live heart rate readings -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/live_readings"
-        android:textSize="14sp"
-        android:textColor="#757575"
-        android:layout_marginBottom="4dp" />
-
-    <ScrollView
-        android:id="@+id/scrollLiveReadings"
-        android:layout_width="match_parent"
-        android:layout_height="96dp"
-        android:background="#FFFFFF"
-        android:layout_marginBottom="12dp">
-
-        <TextView
-            android:id="@+id/tvLiveReadings"
+            android:id="@+id/headerLiveReadings"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/waiting_for_data"
-            android:textSize="13sp"
-            android:textColor="#424242"
-            android:fontFamily="monospace"
-            android:padding="8dp" />
-    </ScrollView>
+            android:text="@string/live_readings"
+            android:textSize="14sp"
+            android:textColor="#757575"
+            android:padding="6dp"
+            android:background="#EEEEEE"
+            android:layout_marginBottom="4dp" />
 
-    <!-- Threshold Rules -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/threshold_rules"
-        android:textSize="14sp"
-        android:textColor="#757575"
-        android:layout_marginBottom="4dp" />
+        <ScrollView
+            android:id="@+id/scrollLiveReadings"
+            android:layout_width="match_parent"
+            android:layout_height="96dp"
+            android:background="#FFFFFF"
+            android:layout_marginBottom="12dp">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginBottom="4dp"
-        android:gravity="center_vertical">
+            <TextView
+                android:id="@+id/tvLiveReadings"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/waiting_for_data"
+                android:textSize="13sp"
+                android:textColor="#424242"
+                android:fontFamily="monospace"
+                android:padding="8dp" />
+        </ScrollView>
 
-        <EditText
-            android:id="@+id/etThreshold"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:hint="@string/threshold_hint"
-            android:inputType="number"
-            android:maxLength="3"
-            android:layout_marginEnd="8dp" />
-
-        <EditText
-            android:id="@+id/etVibrationPeriod"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:hint="@string/vibration_period_hint"
-            android:inputType="number"
-            android:maxLength="4"
-            android:layout_marginEnd="8dp" />
-
-        <Button
-            android:id="@+id/btnSetThreshold"
+        <!-- Threshold Rules -->
+        <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/add" />
-    </LinearLayout>
+            android:text="@string/threshold_rules"
+            android:textSize="14sp"
+            android:textColor="#757575"
+            android:layout_marginBottom="4dp" />
 
-    <ListView
-        android:id="@+id/lvRules"
-        android:layout_width="match_parent"
-        android:layout_height="92dp"
-        android:background="#FFFFFF"
-        android:layout_marginBottom="12dp" />
-
-    <!-- Optional alert channels -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/alert_options"
-        android:textSize="14sp"
-        android:textColor="#757575"
-        android:layout_marginBottom="4dp" />
-
-    <CheckBox
-        android:id="@+id/cbAlertSound"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/alert_option_sound"
-        android:textSize="13sp" />
-
-    <CheckBox
-        android:id="@+id/cbAlertOverlay"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/alert_option_overlay"
-        android:textSize="13sp" />
-
-    <CheckBox
-        android:id="@+id/cbAlertBackground"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/alert_option_background"
-        android:textSize="13sp"
-        android:layout_marginBottom="12dp" />
-
-    <!-- Scan / Connect Controls -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginBottom="12dp">
-
-        <Button
-            android:id="@+id/btnScan"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/scan"
-            android:layout_marginEnd="4dp" />
-
-        <Button
-            android:id="@+id/btnConnect"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/connect"
-            android:layout_marginStart="4dp"
-            android:layout_marginEnd="4dp" />
-
-        <Button
-            android:id="@+id/btnDisconnect"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/disconnect"
-            android:layout_marginStart="4dp" />
-    </LinearLayout>
-
-    <!-- Device List -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/available_devices"
-        android:textSize="14sp"
-        android:textColor="#757575"
-        android:layout_marginBottom="4dp" />
-
-    <ListView
-        android:id="@+id/lvDevices"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1" />
-
-    <!-- Debug error log — shown only on crash, text is selectable for copy-paste -->
-    <ScrollView
-        android:id="@+id/scrollError"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:maxHeight="160dp"
-        android:visibility="gone">
-
-        <TextView
-            android:id="@+id/tvError"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="#FFEBEE"
-            android:textColor="#B71C1C"
-            android:textSize="11sp"
-            android:fontFamily="monospace"
-            android:padding="8dp"
-            android:textIsSelectable="true" />
-    </ScrollView>
+            android:orientation="horizontal"
+            android:layout_marginBottom="4dp"
+            android:gravity="center_vertical">
 
-</LinearLayout>
+            <EditText
+                android:id="@+id/etThreshold"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="@string/threshold_hint"
+                android:inputType="number"
+                android:maxLength="3"
+                android:layout_marginEnd="8dp" />
+
+            <EditText
+                android:id="@+id/etVibrationPeriod"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:hint="@string/vibration_period_hint"
+                android:inputType="number"
+                android:maxLength="4"
+                android:layout_marginEnd="8dp" />
+
+            <Button
+                android:id="@+id/btnSetThreshold"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/add" />
+        </LinearLayout>
+
+        <ListView
+            android:id="@+id/lvRules"
+            android:layout_width="match_parent"
+            android:layout_height="92dp"
+            android:background="#FFFFFF"
+            android:layout_marginBottom="12dp" />
+
+        <!-- Optional alert channels (collapsible) -->
+        <TextView
+            android:id="@+id/headerAlertOptions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/alert_options"
+            android:textSize="14sp"
+            android:textColor="#757575"
+            android:padding="6dp"
+            android:background="#EEEEEE"
+            android:layout_marginBottom="4dp" />
+
+        <LinearLayout
+            android:id="@+id/alertOptionsContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="12dp">
+
+            <CheckBox
+                android:id="@+id/cbAlertSound"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/alert_option_sound"
+                android:textSize="13sp" />
+
+            <CheckBox
+                android:id="@+id/cbAlertOverlay"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/alert_option_overlay"
+                android:textSize="13sp" />
+
+            <CheckBox
+                android:id="@+id/cbAlertBackground"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/alert_option_background"
+                android:textSize="13sp" />
+        </LinearLayout>
+
+        <!-- Scan / Connect Controls -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <Button
+                android:id="@+id/btnScan"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/scan"
+                android:layout_marginEnd="4dp" />
+
+            <Button
+                android:id="@+id/btnConnect"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/connect"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp" />
+
+            <Button
+                android:id="@+id/btnDisconnect"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/disconnect"
+                android:layout_marginStart="4dp" />
+        </LinearLayout>
+
+        <!-- Device List -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/available_devices"
+            android:textSize="14sp"
+            android:textColor="#757575"
+            android:layout_marginBottom="4dp" />
+
+        <ListView
+            android:id="@+id/lvDevices"
+            android:layout_width="match_parent"
+            android:layout_height="220dp"
+            android:background="#FFFFFF" />
+
+        <!-- Debug error log — shown only on crash, text is selectable for copy-paste -->
+        <ScrollView
+            android:id="@+id/scrollError"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:maxHeight="160dp"
+            android:layout_marginTop="12dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvError"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="#FFEBEE"
+                android:textColor="#B71C1C"
+                android:textSize="11sp"
+                android:fontFamily="monospace"
+                android:padding="8dp"
+                android:textIsSelectable="true" />
+        </ScrollView>
+
+    </LinearLayout>
+
+</ScrollView>
