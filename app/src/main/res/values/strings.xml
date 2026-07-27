@@ -51,6 +51,14 @@
     <string name="threshold_none">Threshold: not set</string>
     <string name="bluetooth_device_icon">Bluetooth device</string>
 
+    <!-- Optional alerts -->
+    <string name="alert_options">Alert options</string>
+    <string name="alert_option_sound">Play an alert tone at the vibration frequency</string>
+    <string name="alert_option_overlay">Show a border around the screen</string>
+    <string name="alert_option_background">Change the app background colour</string>
+    <string name="alert_sound_unavailable">Alert tone unavailable on this device</string>
+    <string name="overlay_permission_required">Allow \"display over other apps\" to show the alert border</string>
+
     <!-- Notification -->
     <string name="notification_channel_name">Heart Rate Monitor</string>
     <string name="notification_channel_description">Shows heart rate monitoring status</string>

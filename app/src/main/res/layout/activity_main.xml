@@ -122,6 +122,37 @@
         android:background="#FFFFFF"
         android:layout_marginBottom="12dp" />
 
+    <!-- Optional alert channels -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/alert_options"
+        android:textSize="14sp"
+        android:textColor="#757575"
+        android:layout_marginBottom="4dp" />
+
+    <CheckBox
+        android:id="@+id/cbAlertSound"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/alert_option_sound"
+        android:textSize="13sp" />
+
+    <CheckBox
+        android:id="@+id/cbAlertOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/alert_option_overlay"
+        android:textSize="13sp" />
+
+    <CheckBox
+        android:id="@+id/cbAlertBackground"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/alert_option_background"
+        android:textSize="13sp"
+        android:layout_marginBottom="12dp" />
+
     <!-- Scan / Connect Controls -->
     <LinearLayout
         android:layout_width="match_parent"

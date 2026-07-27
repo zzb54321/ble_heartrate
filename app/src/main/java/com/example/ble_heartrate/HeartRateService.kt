@@ -16,6 +16,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.Binder
 import android.os.Build
 import android.os.Handler
@@ -26,6 +28,11 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.content.pm.ServiceInfo
+import android.graphics.PixelFormat
+import android.provider.Settings
+import android.view.Gravity
+import android.view.View
+import android.view.WindowManager
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.PrintWriter
@@ -50,6 +57,9 @@ class HeartRateService : Service() {
         private const val PREF_NAME = "ble_heartrate_prefs"
         private const val PREF_THRESHOLD = "threshold"
         private const val PREF_RULES = "threshold_rules"
+        private const val PREF_SOUND_ENABLED = "alert_sound_enabled"
+        private const val PREF_OVERLAY_ENABLED = "alert_overlay_enabled"
+        private const val PREF_BACKGROUND_ENABLED = "alert_background_enabled"
         private const val DEFAULT_THRESHOLD = 100
 
         /** Bounds for the configurable vibration period (one buzz + one pause). */
@@ -61,6 +71,9 @@ class HeartRateService : Service() {
         // re-issued periodically instead of relying on the repeat index.
         private const val VIBRATION_REARM_INTERVAL_MS = 100L
         private const val VIBRATION_PULSES_PER_BURST = 3
+
+        /** Volume (0-100) used for the optional alert tone. */
+        private const val TONE_VOLUME = 100
 
         fun heartRateServiceParcelUuid(): ParcelUuid = ParcelUuid.fromString(HEART_RATE_SERVICE_UUID)
     }
@@ -97,6 +110,9 @@ class HeartRateService : Service() {
 
     @Volatile private var gatt: BluetoothGatt? = null
     private var vibrator: Vibrator? = null
+    private var toneGenerator: ToneGenerator? = null
+    private var windowManager: WindowManager? = null
+    private var overlayView: View? = null
     @Volatile private var isVibrating = false
     private val vibrationHandler = Handler(Looper.getMainLooper())
     private val vibrationRunnable = object : Runnable {
@@ -105,6 +121,7 @@ class HeartRateService : Service() {
             if (!isVibrating) return
             val pattern = rule.pattern()
             playVibrationPattern(pattern)
+            playAlertTones(pattern)
             vibrationHandler.postDelayed(this, pattern.sum() + VIBRATION_REARM_INTERVAL_MS)
         }
     }
@@ -113,6 +130,12 @@ class HeartRateService : Service() {
     /** Alert rules sorted ascending by BPM. */
     private val rules = mutableListOf<AlertRule>()
     @Volatile private var activeRule: AlertRule? = null
+
+    @Volatile private var soundEnabled = false
+    @Volatile private var overlayEnabled = false
+    @Volatile private var backgroundEnabled = false
+    private val alertHandler = Handler(Looper.getMainLooper())
+    private val uiHandler = Handler(Looper.getMainLooper())
 
     private lateinit var prefs: SharedPreferences
     private lateinit var notificationManager: NotificationManager
@@ -126,9 +149,11 @@ class HeartRateService : Service() {
         try {
             prefs = getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
             loadRules()
+            loadOptions()
 
             notificationManager = getSystemService(NotificationManager::class.java)
             vibrator = resolveVibrator()
+            windowManager = getSystemService(Context.WINDOW_SERVICE) as? WindowManager
 
             createNotificationChannel()
             // Android 14 (API 34) enforces that services with a declared foregroundServiceType
@@ -162,7 +187,8 @@ class HeartRateService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        stopVibrating()
+        stopAlert()
+        releaseToneGenerator()
         closeGatt()
     }
 
@@ -230,6 +256,35 @@ class HeartRateService : Service() {
 
     /** Whether the alert vibration is currently running. */
     fun isAlerting(): Boolean = isVibrating
+
+    /** Whether the alert tone is enabled. */
+    fun isSoundEnabled(): Boolean = soundEnabled
+
+    /** Whether the screen border overlay alert is enabled. */
+    fun isOverlayEnabled(): Boolean = overlayEnabled
+
+    /** Whether the alerting background colour is enabled. */
+    fun isBackgroundEnabled(): Boolean = backgroundEnabled
+
+    /** Enable/disable the alert tone that follows the vibration frequency. */
+    fun setSoundEnabled(enabled: Boolean) {
+        soundEnabled = enabled
+        prefs.edit().putBoolean(PREF_SOUND_ENABLED, enabled).apply()
+        if (!enabled) stopAlertTones()
+    }
+
+    /** Enable/disable the screen border overlay shown while alerting. */
+    fun setOverlayEnabled(enabled: Boolean) {
+        overlayEnabled = enabled
+        prefs.edit().putBoolean(PREF_OVERLAY_ENABLED, enabled).apply()
+        if (enabled && isVibrating) showOverlay() else hideOverlay()
+    }
+
+    /** Enable/disable the alerting background colour used by the activity. */
+    fun setBackgroundEnabled(enabled: Boolean) {
+        backgroundEnabled = enabled
+        prefs.edit().putBoolean(PREF_BACKGROUND_ENABLED, enabled).apply()
+    }
 
     // -------------------------------------------------------------------------
     // BLE GATT callback
@@ -349,13 +404,16 @@ class HeartRateService : Service() {
 
     private fun startVibrating() {
         if (isVibrating) return
-        val vib = vibrator
-        if (vib == null || !vib.hasVibrator()) {
-            broadcastStatus(getString(R.string.vibrator_unavailable))
-            return
-        }
         if (activeRule == null) return
+        val vib = vibrator
+        val canVibrate = vib != null && vib.hasVibrator()
+        if (!canVibrate) {
+            broadcastStatus(getString(R.string.vibrator_unavailable))
+            // The optional tone / overlay alerts still work without a vibrator.
+            if (!soundEnabled && !overlayEnabled) return
+        }
         isVibrating = true
+        if (overlayEnabled) showOverlay()
         vibrationHandler.removeCallbacks(vibrationRunnable)
         vibrationHandler.post(vibrationRunnable)
     }
@@ -381,9 +439,130 @@ class HeartRateService : Service() {
     private fun stopVibrating() {
         vibrationHandler.removeCallbacks(vibrationRunnable)
         activeRule = null
+        stopAlertTones()
+        hideOverlay()
         if (!isVibrating) return
         isVibrating = false
         vibrator?.cancel()
+    }
+
+    /** Stop every alert channel (vibration, tone and overlay). */
+    private fun stopAlert() = stopVibrating()
+
+    // -------------------------------------------------------------------------
+    // Optional alert: tone following the vibration frequency
+    // -------------------------------------------------------------------------
+
+    /** Beep once per vibration pulse so the tone frequency matches the vibration. */
+    private fun playAlertTones(pattern: LongArray) {
+        if (!soundEnabled) return
+        val tone = ensureToneGenerator() ?: return
+        var delay = 0L
+        for (i in 0 until VIBRATION_PULSES_PER_BURST) {
+            val on = pattern[1 + i * 2]
+            val off = pattern[2 + i * 2]
+            alertHandler.postDelayed({
+                if (isVibrating && soundEnabled) {
+                    try {
+                        tone.startTone(ToneGenerator.TONE_PROP_BEEP, on.toInt())
+                    } catch (_: Exception) {
+                        // Tone generator may have been released concurrently.
+                    }
+                }
+            }, delay)
+            delay += on + off
+        }
+    }
+
+    private fun stopAlertTones() {
+        alertHandler.removeCallbacksAndMessages(null)
+        try {
+            toneGenerator?.stopTone()
+        } catch (_: Exception) {
+            // Nothing to stop.
+        }
+    }
+
+    private fun ensureToneGenerator(): ToneGenerator? {
+        toneGenerator?.let { return it }
+        return try {
+            ToneGenerator(AudioManager.STREAM_ALARM, TONE_VOLUME).also { toneGenerator = it }
+        } catch (_: RuntimeException) {
+            // Some devices fail to allocate the tone generator; degrade gracefully.
+            broadcastStatus(getString(R.string.alert_sound_unavailable))
+            null
+        }
+    }
+
+    private fun releaseToneGenerator() {
+        try {
+            toneGenerator?.release()
+        } catch (_: Exception) {
+            // Already released.
+        }
+        toneGenerator = null
+    }
+
+    // -------------------------------------------------------------------------
+    // Optional alert: screen border overlay
+    // -------------------------------------------------------------------------
+
+    private fun canDrawOverlay(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)
+
+    private fun showOverlay() = runOnMain {
+        if (!overlayEnabled) return@runOnMain
+        addOverlayView()
+    }
+
+    private fun hideOverlay() = runOnMain { removeOverlayView() }
+
+    /** Window operations must run on a thread with a Looper; GATT callbacks do not have one. */
+    private fun runOnMain(action: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) action() else uiHandler.post(action)
+    }
+
+    private fun addOverlayView() {
+        if (overlayView != null) return
+        val wm = windowManager ?: return
+        if (!canDrawOverlay()) {
+            broadcastStatus(getString(R.string.overlay_permission_required))
+            return
+        }
+        val view = View(this).apply { setBackgroundResource(R.drawable.alert_border) }
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        } else {
+            @Suppress("DEPRECATION")
+            WindowManager.LayoutParams.TYPE_PHONE
+        }
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            type,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply { gravity = Gravity.TOP or Gravity.START }
+        try {
+            wm.addView(view, params)
+            overlayView = view
+        } catch (_: Exception) {
+            // Overlay rejected by the system (e.g. permission revoked meanwhile).
+            overlayView = null
+        }
+    }
+
+    private fun removeOverlayView() {
+        val view = overlayView ?: return
+        overlayView = null
+        try {
+            windowManager?.removeView(view)
+        } catch (_: Exception) {
+            // Already detached.
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -501,6 +680,12 @@ class HeartRateService : Service() {
             rules.clear()
         }
         rules.sortBy { it.bpm }
+    }
+
+    private fun loadOptions() {
+        soundEnabled = prefs.getBoolean(PREF_SOUND_ENABLED, false)
+        overlayEnabled = prefs.getBoolean(PREF_OVERLAY_ENABLED, false)
+        backgroundEnabled = prefs.getBoolean(PREF_BACKGROUND_ENABLED, false)
     }
 
     private fun saveRules() {

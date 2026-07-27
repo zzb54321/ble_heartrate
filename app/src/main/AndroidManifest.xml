@@ -31,6 +31,9 @@
     <!-- Notifications (required to show the foreground service notification on Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Screen border overlay shown while the heart rate exceeds a threshold -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+
     <!-- Vibration -->
     <uses-permission android:name="android.permission.VIBRATE" />
 

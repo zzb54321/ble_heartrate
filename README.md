@@ -8,6 +8,7 @@ supports a configurable vibration threshold, and can run in the background as a 
 - **BLE Scan** — Discovers nearby BLE devices and highlights devices that advertise the standard Heart Rate Service (UUID `0x180D`)
 - **Heart Rate Display** — Shows the live heart rate value in BPM; turns orange when the threshold is exceeded
 - **Vibration Threshold** — Set a BPM limit; the phone vibrates continuously whenever the heart rate exceeds the threshold and stops when it falls back below
+- **Optional Alerts** — Independently switchable extras that trigger while the heart rate is above a threshold: an alert tone that beeps at the configured vibration frequency, a red border drawn around the screen (requires the "display over other apps" permission), and an alerting app background colour
 - **Background Operation** — A persistent foreground service keeps the BLE connection alive and monitors heart rate even when the app is minimised
 - **Threshold Persistence** — The threshold is saved to SharedPreferences and restored automatically on the next launch
 
@@ -18,7 +19,7 @@ supports a configurable vibration threshold, and can run in the background as a 
 | Minimum SDK | API 21 (Android 5.0 Lollipop) |
 | Target SDK | API 35 (Android 15) |
 | Language | Kotlin |
-| Permissions | `BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT` (API 31+) / `ACCESS_FINE_LOCATION` (API < 31), `VIBRATE`, `FOREGROUND_SERVICE` |
+| Permissions | `BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT` (API 31+) / `ACCESS_FINE_LOCATION` (API < 31), `VIBRATE`, `FOREGROUND_SERVICE`, `SYSTEM_ALERT_WINDOW` (optional, for the screen border alert) |
 
 ## Pre-built APK
 

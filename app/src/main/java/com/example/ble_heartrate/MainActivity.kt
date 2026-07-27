@@ -27,6 +27,7 @@ import android.os.Looper
 import android.provider.Settings
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ListView
 import android.widget.TextView
@@ -57,6 +58,10 @@ class MainActivity : Activity() {
     private lateinit var rootContainer: View
     private lateinit var etVibrationPeriod: EditText
     private lateinit var lvRules: ListView
+    private lateinit var cbAlertSound: CheckBox
+    private lateinit var cbAlertOverlay: CheckBox
+    private lateinit var cbAlertBackground: CheckBox
+    private var backgroundAlertEnabled = false
     private lateinit var ruleAdapter: ArrayAdapter<String>
     private val ruleLabels = mutableListOf<String>()
 
@@ -86,6 +91,9 @@ class MainActivity : Activity() {
         private const val REQUEST_PERMISSIONS = 1001
         private const val MAX_LIVE_READINGS = 50
         private const val PRIORITY_DEVICE_KEYWORD = "vivo"
+        private const val REQUEST_OVERLAY_PERMISSION = 1002
+        private const val COLOR_BACKGROUND_NORMAL = "#F5F5F5"
+        private const val COLOR_BACKGROUND_ALERT = "#FFCDD2"
     }
 
     private val serviceConnection = object : ServiceConnection {
@@ -94,6 +102,7 @@ class MainActivity : Activity() {
             heartRateService = binder.getService()
             bound = true
             refreshRules()
+            refreshAlertOptions()
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -121,6 +130,7 @@ class MainActivity : Activity() {
                             if (exceeded) Color.parseColor("#FF6D00") else Color.parseColor("#E53935")
                         )
                         appendLiveReading(hr, threshold, exceeded)
+                        applyAlertBackground(exceeded)
                     }
                     if (exceeded && threshold > 0) {
                         tvThresholdInfo.text = getString(R.string.threshold_alerting, threshold)
@@ -176,6 +186,10 @@ class MainActivity : Activity() {
         rootContainer = findViewById(R.id.rootContainer)
         etVibrationPeriod = findViewById(R.id.etVibrationPeriod)
         lvRules = findViewById(R.id.lvRules)
+        cbAlertSound = findViewById(R.id.cbAlertSound)
+        cbAlertOverlay = findViewById(R.id.cbAlertOverlay)
+        cbAlertBackground = findViewById(R.id.cbAlertBackground)
+        setupAlertOptions()
         applyWindowInsets()
 
         ruleAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, ruleLabels)
@@ -439,6 +453,94 @@ class MainActivity : Activity() {
         service.removeRule(rule.bpm)
         refreshRules()
         Toast.makeText(this, getString(R.string.rule_removed, rule.bpm), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun setupAlertOptions() {
+        cbAlertSound.setOnClickListener {
+            val service = heartRateService
+            if (service == null) {
+                cbAlertSound.isChecked = !cbAlertSound.isChecked
+                Toast.makeText(this, R.string.service_not_ready, Toast.LENGTH_SHORT).show()
+                startAndBindService()
+                return@setOnClickListener
+            }
+            service.setSoundEnabled(cbAlertSound.isChecked)
+        }
+
+        cbAlertOverlay.setOnClickListener {
+            val service = heartRateService
+            if (service == null) {
+                cbAlertOverlay.isChecked = !cbAlertOverlay.isChecked
+                Toast.makeText(this, R.string.service_not_ready, Toast.LENGTH_SHORT).show()
+                startAndBindService()
+                return@setOnClickListener
+            }
+            if (cbAlertOverlay.isChecked && !canDrawOverlays()) {
+                cbAlertOverlay.isChecked = false
+                requestOverlayPermission()
+                return@setOnClickListener
+            }
+            service.setOverlayEnabled(cbAlertOverlay.isChecked)
+        }
+
+        cbAlertBackground.setOnClickListener {
+            val service = heartRateService
+            if (service == null) {
+                cbAlertBackground.isChecked = !cbAlertBackground.isChecked
+                Toast.makeText(this, R.string.service_not_ready, Toast.LENGTH_SHORT).show()
+                startAndBindService()
+                return@setOnClickListener
+            }
+            backgroundAlertEnabled = cbAlertBackground.isChecked
+            service.setBackgroundEnabled(backgroundAlertEnabled)
+            if (!backgroundAlertEnabled) applyAlertBackground(false)
+        }
+    }
+
+    /** Mirror the option state persisted by the service into the checkboxes. */
+    private fun refreshAlertOptions() {
+        val service = heartRateService ?: return
+        cbAlertSound.isChecked = service.isSoundEnabled()
+        cbAlertOverlay.isChecked = service.isOverlayEnabled()
+        backgroundAlertEnabled = service.isBackgroundEnabled()
+        cbAlertBackground.isChecked = backgroundAlertEnabled
+        if (!backgroundAlertEnabled) applyAlertBackground(false)
+    }
+
+    private fun applyAlertBackground(exceeded: Boolean) {
+        val color = if (backgroundAlertEnabled && exceeded) {
+            COLOR_BACKGROUND_ALERT
+        } else {
+            COLOR_BACKGROUND_NORMAL
+        }
+        rootContainer.setBackgroundColor(Color.parseColor(color))
+    }
+
+    private fun canDrawOverlays(): Boolean =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this)
+
+    private fun requestOverlayPermission() {
+        Toast.makeText(this, R.string.overlay_permission_required, Toast.LENGTH_LONG).show()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        try {
+            startActivityForResult(
+                Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.fromParts("package", packageName, null)
+                ),
+                REQUEST_OVERLAY_PERMISSION
+            )
+        } catch (_: Exception) {
+            // Settings activity unavailable on this device
+        }
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_OVERLAY_PERMISSION && canDrawOverlays()) {
+            cbAlertOverlay.isChecked = true
+            heartRateService?.setOverlayEnabled(true)
+        }
     }
 
     /** Re-render the rule list and the threshold summary from the service state. */
