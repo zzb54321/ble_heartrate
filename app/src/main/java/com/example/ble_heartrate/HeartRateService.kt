@@ -53,6 +53,8 @@ class HeartRateService : Service() {
 
         private const val CHANNEL_ID = "HeartRateChannel"
         private const val NOTIFICATION_ID = 1
+        private const val ALERT_CHANNEL_ID = "HeartRateAlertChannel"
+        private const val ALERT_NOTIFICATION_ID = 2
 
         private const val PREF_NAME = "ble_heartrate_prefs"
         private const val PREF_THRESHOLD = "threshold"
@@ -62,6 +64,7 @@ class HeartRateService : Service() {
         private const val PREF_BACKGROUND_ENABLED = "alert_background_enabled"
         private const val PREF_VIBRATION_ENABLED = "alert_vibration_enabled"
         private const val PREF_TONE_INDEX = "alert_tone_index"
+        private const val PREF_NOTIFICATION_ENABLED = "alert_notification_enabled"
         private const val PREF_LAST_DEVICE_ADDRESS = "last_device_address"
         private const val PREF_LAST_DEVICE_NAME = "last_device_name"
         private const val DEFAULT_THRESHOLD = 100
@@ -146,6 +149,7 @@ class HeartRateService : Service() {
             val pattern = rule.pattern()
             playVibrationPattern(pattern)
             playAlertTones(pattern)
+            postAlertNotification(rule)
             vibrationHandler.postDelayed(this, pattern.sum() + VIBRATION_REARM_INTERVAL_MS)
         }
     }
@@ -162,6 +166,7 @@ class HeartRateService : Service() {
     @Volatile private var alertsEnabled = true
     @Volatile private var overlayEnabled = false
     @Volatile private var backgroundEnabled = false
+    @Volatile private var notificationAlertEnabled = false
     private val alertHandler = Handler(Looper.getMainLooper())
     private val uiHandler = Handler(Looper.getMainLooper())
 
@@ -326,6 +331,9 @@ class HeartRateService : Service() {
     /** Whether the alerting background colour is enabled. */
     fun isBackgroundEnabled(): Boolean = backgroundEnabled
 
+    /** Whether the periodic alert notification is enabled. */
+    fun isNotificationAlertEnabled(): Boolean = notificationAlertEnabled
+
     /** Enable/disable the alert tone that follows the vibration frequency. */
     fun setSoundEnabled(enabled: Boolean) {
         soundEnabled = enabled
@@ -369,6 +377,13 @@ class HeartRateService : Service() {
     fun setBackgroundEnabled(enabled: Boolean) {
         backgroundEnabled = enabled
         prefs.edit().putBoolean(PREF_BACKGROUND_ENABLED, enabled).apply()
+    }
+
+    /** Enable/disable the notification posted once per alert cycle. */
+    fun setNotificationAlertEnabled(enabled: Boolean) {
+        notificationAlertEnabled = enabled
+        prefs.edit().putBoolean(PREF_NOTIFICATION_ENABLED, enabled).apply()
+        if (!enabled) cancelAlertNotification()
     }
 
     // -------------------------------------------------------------------------
@@ -500,7 +515,9 @@ class HeartRateService : Service() {
             broadcastStatus(getString(R.string.vibrator_unavailable))
         }
         // The optional tone / overlay alerts still work without vibration.
-        if (!canVibrate && !soundEnabled && !overlayEnabled && !backgroundEnabled) return
+        if (!canVibrate && !soundEnabled && !overlayEnabled && !backgroundEnabled &&
+            !notificationAlertEnabled
+        ) return
         isVibrating = true
         if (overlayEnabled) showOverlay()
         vibrationHandler.removeCallbacks(vibrationRunnable)
@@ -531,6 +548,7 @@ class HeartRateService : Service() {
         activeRule = null
         stopAlertTones()
         hideOverlay()
+        cancelAlertNotification()
         if (!isVibrating) return
         isVibrating = false
         vibrator?.cancel()
@@ -694,6 +712,20 @@ class HeartRateService : Service() {
                 setShowBadge(false)
             }
             notificationManager.createNotificationChannel(channel)
+
+            // Separate high-importance channel so the periodic alert can pop up as a
+            // heads-up notification without making the ongoing status notification noisy.
+            val alertChannel = NotificationChannel(
+                ALERT_CHANNEL_ID,
+                getString(R.string.alert_notification_channel_name),
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = getString(R.string.alert_notification_channel_description)
+                setShowBadge(true)
+                enableVibration(false)
+                setSound(null, null)
+            }
+            notificationManager.createNotificationChannel(alertChannel)
         }
     }
 
@@ -725,6 +757,53 @@ class HeartRateService : Service() {
 
     private fun updateNotification(contentText: String) {
         notificationManager.notify(NOTIFICATION_ID, buildNotification(contentText))
+    }
+
+    /**
+     * Post one alert notification per vibration burst, so the notification repeats with
+     * the alert cycle configured on the triggering rule.
+     */
+    private fun postAlertNotification(rule: AlertRule) {
+        if (!notificationAlertEnabled) return
+        val text = getString(R.string.alert_notification_text, currentHeartRate, rule.bpm)
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val notification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, ALERT_CHANNEL_ID)
+                .setContentTitle(getString(R.string.alert_notification_title))
+                .setContentText(text)
+                .setSmallIcon(android.R.drawable.stat_notify_error)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .setOnlyAlertOnce(false)
+                .build()
+        } else {
+            @Suppress("DEPRECATION")
+            Notification.Builder(this)
+                .setContentTitle(getString(R.string.alert_notification_title))
+                .setContentText(text)
+                .setSmallIcon(android.R.drawable.stat_notify_error)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .setPriority(Notification.PRIORITY_HIGH)
+                .build()
+        }
+        try {
+            notificationManager.notify(ALERT_NOTIFICATION_ID, notification)
+        } catch (_: SecurityException) {
+            // POST_NOTIFICATIONS was denied; the other alert channels still work.
+        }
+    }
+
+    private fun cancelAlertNotification() {
+        try {
+            notificationManager.cancel(ALERT_NOTIFICATION_ID)
+        } catch (_: Exception) {
+            // Nothing to cancel.
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -786,6 +865,7 @@ class HeartRateService : Service() {
         soundEnabled = prefs.getBoolean(PREF_SOUND_ENABLED, false)
         overlayEnabled = prefs.getBoolean(PREF_OVERLAY_ENABLED, false)
         backgroundEnabled = prefs.getBoolean(PREF_BACKGROUND_ENABLED, false)
+        notificationAlertEnabled = prefs.getBoolean(PREF_NOTIFICATION_ENABLED, false)
         vibrationEnabled = prefs.getBoolean(PREF_VIBRATION_ENABLED, true)
         toneIndex = prefs.getInt(PREF_TONE_INDEX, 0).coerceIn(0, ALERT_TONES.size - 1)
     }

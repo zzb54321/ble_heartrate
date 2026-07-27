@@ -230,6 +230,13 @@
                 android:textSize="13sp" />
 
             <CheckBox
+                android:id="@+id/cbAlertNotification"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/alert_option_notification"
+                android:textSize="13sp" />
+
+            <CheckBox
                 android:id="@+id/cbAlertBackground"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

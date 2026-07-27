@@ -76,11 +76,13 @@
     <string name="alert_option_overlay">Show a border around the screen</string>
     <string name="alert_option_background">Change the app background colour</string>
     <string name="alert_option_vibration">Vibrate</string>
+    <string name="alert_option_notification">Send a notification each alert cycle</string>
     <string name="alerts_pause">Pause all alerts</string>
     <string name="alerts_resume">Resume alerts</string>
     <string name="alerts_paused_toast">Alerts paused</string>
     <string name="alerts_resumed_toast">Alerts resumed</string>
     <string name="alert_sound_unavailable">Alert tone unavailable on this device</string>
+    <string name="notification_permission_required">Allow notifications to use the alert notification</string>
     <string name="overlay_permission_required">Allow \"display over other apps\" to show the alert border</string>
 
     <!-- Alert tone drop-down; order must match HeartRateService.ALERT_TONES -->
@@ -98,5 +100,9 @@
     <string name="notification_channel_description">Shows heart rate monitoring status</string>
     <string name="notification_idle">Waiting for a device…</string>
     <string name="notification_connected">Connected — waiting for data</string>
+    <string name="alert_notification_channel_name">Heart Rate Alerts</string>
+    <string name="alert_notification_channel_description">Repeating notification while the heart rate is above a threshold</string>
+    <string name="alert_notification_title">Heart rate alert</string>
+    <string name="alert_notification_text">%1$d BPM — above %2$d BPM</string>
     <string name="notification_monitoring">Heart rate: %1$d BPM | Threshold: %2$d BPM</string>
 </resources>

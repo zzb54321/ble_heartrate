@@ -64,6 +64,7 @@ class MainActivity : Activity() {
     private lateinit var tvLastDevice: TextView
     private lateinit var cbAlertOverlay: CheckBox
     private lateinit var cbAlertBackground: CheckBox
+    private lateinit var cbAlertNotification: CheckBox
     private lateinit var cbAlertVibration: CheckBox
     private lateinit var btnToggleAlerts: Button
     private lateinit var chartHeartRate: HeartRateChartView
@@ -220,6 +221,7 @@ class MainActivity : Activity() {
         tvLastDevice = findViewById(R.id.tvLastDevice)
         cbAlertOverlay = findViewById(R.id.cbAlertOverlay)
         cbAlertBackground = findViewById(R.id.cbAlertBackground)
+        cbAlertNotification = findViewById(R.id.cbAlertNotification)
         cbAlertVibration = findViewById(R.id.cbAlertVibration)
         btnToggleAlerts = findViewById(R.id.btnToggleAlerts)
         chartHeartRate = findViewById(R.id.chartHeartRate)
@@ -671,6 +673,23 @@ class MainActivity : Activity() {
             service.setOverlayEnabled(cbAlertOverlay.isChecked)
         }
 
+        cbAlertNotification.setOnClickListener {
+            val service = heartRateService
+            if (service == null) {
+                cbAlertNotification.isChecked = !cbAlertNotification.isChecked
+                Toast.makeText(this, R.string.service_not_ready, Toast.LENGTH_SHORT).show()
+                startAndBindService()
+                return@setOnClickListener
+            }
+            if (cbAlertNotification.isChecked && !hasNotificationPermission()) {
+                cbAlertNotification.isChecked = false
+                Toast.makeText(this, R.string.notification_permission_required, Toast.LENGTH_LONG).show()
+                checkAndRequestPermissions()
+                return@setOnClickListener
+            }
+            service.setNotificationAlertEnabled(cbAlertNotification.isChecked)
+        }
+
         cbAlertBackground.setOnClickListener {
             val service = heartRateService
             if (service == null) {
@@ -713,6 +732,7 @@ class MainActivity : Activity() {
         cbAlertVibration.isChecked = service.isVibrationEnabled()
         updateAlertsToggle(service.areAlertsEnabled())
         cbAlertOverlay.isChecked = service.isOverlayEnabled()
+        cbAlertNotification.isChecked = service.isNotificationAlertEnabled()
         backgroundAlertEnabled = service.isBackgroundEnabled()
         cbAlertBackground.isChecked = backgroundAlertEnabled
         if (!backgroundAlertEnabled) applyAlertBackground(false)
@@ -872,6 +892,14 @@ class MainActivity : Activity() {
     private fun optionalPermissions(): List<String> = buildList {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    private fun hasNotificationPermission(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
         }
     }
 
