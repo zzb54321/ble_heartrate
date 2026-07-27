@@ -144,12 +144,28 @@
                 android:text="@string/add" />
         </LinearLayout>
 
+        <!-- Fixed height keeps the page compact when many rules are configured;
+             the list scrolls internally. -->
         <ListView
             android:id="@+id/lvRules"
             android:layout_width="match_parent"
-            android:layout_height="92dp"
+            android:layout_height="160dp"
             android:background="#FFFFFF"
+            android:divider="#EEEEEE"
+            android:dividerHeight="1dp"
             android:layout_marginBottom="12dp" />
+
+        <TextView
+            android:id="@+id/tvNoRules"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/no_rules"
+            android:textSize="13sp"
+            android:textColor="#9E9E9E"
+            android:background="#FFFFFF"
+            android:padding="8dp"
+            android:layout_marginBottom="12dp"
+            android:visibility="gone" />
 
         <!-- Optional alert channels (collapsible) -->
         <TextView
@@ -169,6 +185,20 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:layout_marginBottom="12dp">
+
+            <Button
+                android:id="@+id/btnToggleAlerts"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/alerts_pause"
+                android:layout_marginBottom="4dp" />
+
+            <CheckBox
+                android:id="@+id/cbAlertVibration"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/alert_option_vibration"
+                android:textSize="13sp" />
 
             <CheckBox
                 android:id="@+id/cbAlertSound"

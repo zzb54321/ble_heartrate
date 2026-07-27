@@ -60,6 +60,7 @@ class HeartRateService : Service() {
         private const val PREF_SOUND_ENABLED = "alert_sound_enabled"
         private const val PREF_OVERLAY_ENABLED = "alert_overlay_enabled"
         private const val PREF_BACKGROUND_ENABLED = "alert_background_enabled"
+        private const val PREF_VIBRATION_ENABLED = "alert_vibration_enabled"
         private const val DEFAULT_THRESHOLD = 100
 
         /** Bounds for the configurable vibration period (one buzz + one pause). */
@@ -75,6 +76,13 @@ class HeartRateService : Service() {
         /** Volume (0-100) used for the optional alert tone. */
         private const val TONE_VOLUME = 100
 
+        /**
+         * Alarm-style tone used for the audible alert. TONE_CDMA_HIGH_L is a sharp,
+         * high pitched beep that cuts through ambient noise much better than the
+         * previously used TONE_PROP_BEEP.
+         */
+        private const val ALERT_TONE_TYPE = ToneGenerator.TONE_CDMA_HIGH_L
+
         fun heartRateServiceParcelUuid(): ParcelUuid = ParcelUuid.fromString(HEART_RATE_SERVICE_UUID)
     }
 
@@ -83,9 +91,9 @@ class HeartRateService : Service() {
      * cycle length of [periodMs] (shorter period = higher vibration frequency).
      * The highest matching rule wins, so several rules can escalate the alert.
      */
-    data class AlertRule(val bpm: Int, val periodMs: Long) {
+    data class AlertRule(val bpm: Int, val periodMs: Long, val enabled: Boolean = true) {
         fun normalized(): AlertRule =
-            AlertRule(bpm, periodMs.coerceIn(MIN_PERIOD_MS, MAX_PERIOD_MS))
+            AlertRule(bpm, periodMs.coerceIn(MIN_PERIOD_MS, MAX_PERIOD_MS), enabled)
 
         /** Waveform for one burst: alternating buzz / pause of half the period each. */
         fun pattern(): LongArray {
@@ -132,6 +140,9 @@ class HeartRateService : Service() {
     @Volatile private var activeRule: AlertRule? = null
 
     @Volatile private var soundEnabled = false
+    @Volatile private var vibrationEnabled = true
+    /** Temporary master switch; not persisted so alerts resume after a restart. */
+    @Volatile private var alertsEnabled = true
     @Volatile private var overlayEnabled = false
     @Volatile private var backgroundEnabled = false
     private val alertHandler = Handler(Looper.getMainLooper())
@@ -237,6 +248,11 @@ class HeartRateService : Service() {
         setRules(rules.filter { it.bpm != rule.bpm } + rule)
     }
 
+    /** Temporarily enable or disable a single rule without deleting it. */
+    fun setRuleEnabled(bpm: Int, enabled: Boolean) {
+        setRules(rules.map { if (it.bpm == bpm) it.copy(enabled = enabled) else it })
+    }
+
     /** Remove the rule with the given BPM threshold. */
     fun removeRule(bpm: Int) {
         setRules(rules.filter { it.bpm != bpm })
@@ -245,8 +261,8 @@ class HeartRateService : Service() {
     /** Current alert rules, sorted ascending by BPM. */
     fun getRules(): List<AlertRule> = rules.toList()
 
-    /** Lowest configured threshold (0 when no rule is configured). */
-    fun lowestThreshold(): Int = rules.firstOrNull()?.bpm ?: 0
+    /** Lowest active threshold (0 when no rule is enabled). */
+    fun lowestThreshold(): Int = rules.firstOrNull { it.enabled }?.bpm ?: 0
 
     /** Threshold of the rule that is currently triggering the alert (0 when idle). */
     fun activeThreshold(): Int = activeRule?.bpm ?: 0
@@ -260,6 +276,12 @@ class HeartRateService : Service() {
     /** Whether the alert tone is enabled. */
     fun isSoundEnabled(): Boolean = soundEnabled
 
+    /** Whether the alert vibration is enabled. */
+    fun isVibrationEnabled(): Boolean = vibrationEnabled
+
+    /** Whether alerts are currently allowed to fire at all. */
+    fun areAlertsEnabled(): Boolean = alertsEnabled
+
     /** Whether the screen border overlay alert is enabled. */
     fun isOverlayEnabled(): Boolean = overlayEnabled
 
@@ -271,6 +293,20 @@ class HeartRateService : Service() {
         soundEnabled = enabled
         prefs.edit().putBoolean(PREF_SOUND_ENABLED, enabled).apply()
         if (!enabled) stopAlertTones()
+    }
+
+    /** Enable/disable the alert vibration. */
+    fun setVibrationEnabled(enabled: Boolean) {
+        vibrationEnabled = enabled
+        prefs.edit().putBoolean(PREF_VIBRATION_ENABLED, enabled).apply()
+        if (!enabled) vibrator?.cancel()
+        evaluateThreshold()
+    }
+
+    /** Temporarily suspend or resume every alert channel without touching the rules. */
+    fun setAlertsEnabled(enabled: Boolean) {
+        alertsEnabled = enabled
+        if (enabled) evaluateThreshold() else stopVibrating()
     }
 
     /** Enable/disable the screen border overlay shown while alerting. */
@@ -389,7 +425,11 @@ class HeartRateService : Service() {
     // -------------------------------------------------------------------------
 
     private fun evaluateThreshold() {
-        val matching = rules.lastOrNull { currentHeartRate > it.bpm }
+        if (!alertsEnabled) {
+            stopVibrating()
+            return
+        }
+        val matching = rules.lastOrNull { it.enabled && currentHeartRate > it.bpm }
         if (matching == null || currentHeartRate <= 0) {
             stopVibrating()
             return
@@ -406,12 +446,12 @@ class HeartRateService : Service() {
         if (isVibrating) return
         if (activeRule == null) return
         val vib = vibrator
-        val canVibrate = vib != null && vib.hasVibrator()
-        if (!canVibrate) {
+        val canVibrate = vibrationEnabled && vib != null && vib.hasVibrator()
+        if (vibrationEnabled && (vib == null || !vib.hasVibrator())) {
             broadcastStatus(getString(R.string.vibrator_unavailable))
-            // The optional tone / overlay alerts still work without a vibrator.
-            if (!soundEnabled && !overlayEnabled) return
         }
+        // The optional tone / overlay alerts still work without vibration.
+        if (!canVibrate && !soundEnabled && !overlayEnabled && !backgroundEnabled) return
         isVibrating = true
         if (overlayEnabled) showOverlay()
         vibrationHandler.removeCallbacks(vibrationRunnable)
@@ -419,6 +459,7 @@ class HeartRateService : Service() {
     }
 
     private fun playVibrationPattern(pattern: LongArray) {
+        if (!vibrationEnabled) return
         val vib = vibrator ?: return
         // USAGE_ALARM keeps the alert audible/tactile even when the device is in
         // silent mode or the app is not in the foreground.
@@ -464,7 +505,7 @@ class HeartRateService : Service() {
             alertHandler.postDelayed({
                 if (isVibrating && soundEnabled) {
                     try {
-                        tone.startTone(ToneGenerator.TONE_PROP_BEEP, on.toInt())
+                        tone.startTone(ALERT_TONE_TYPE, on.toInt())
                     } catch (_: Exception) {
                         // Tone generator may have been released concurrently.
                     }
@@ -673,7 +714,13 @@ class HeartRateService : Service() {
                 val obj = array.optJSONObject(i) ?: continue
                 val bpm = obj.optInt("bpm", 0)
                 if (bpm <= 0) continue
-                rules.add(AlertRule(bpm, obj.optLong("periodMs", DEFAULT_PERIOD_MS)).normalized())
+                rules.add(
+                    AlertRule(
+                        bpm,
+                        obj.optLong("periodMs", DEFAULT_PERIOD_MS),
+                        obj.optBoolean("enabled", true)
+                    ).normalized()
+                )
             }
         } catch (_: Exception) {
             // Corrupted preference — fall back to no rules rather than crashing.
@@ -686,12 +733,18 @@ class HeartRateService : Service() {
         soundEnabled = prefs.getBoolean(PREF_SOUND_ENABLED, false)
         overlayEnabled = prefs.getBoolean(PREF_OVERLAY_ENABLED, false)
         backgroundEnabled = prefs.getBoolean(PREF_BACKGROUND_ENABLED, false)
+        vibrationEnabled = prefs.getBoolean(PREF_VIBRATION_ENABLED, true)
     }
 
     private fun saveRules() {
         val array = JSONArray()
         rules.forEach { rule ->
-            array.put(JSONObject().put("bpm", rule.bpm).put("periodMs", rule.periodMs))
+            array.put(
+                JSONObject()
+                    .put("bpm", rule.bpm)
+                    .put("periodMs", rule.periodMs)
+                    .put("enabled", rule.enabled)
+            )
         }
         prefs.edit().putString(PREF_RULES, array.toString()).apply()
     }

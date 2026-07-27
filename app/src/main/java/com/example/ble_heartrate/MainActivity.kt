@@ -61,6 +61,8 @@ class MainActivity : Activity() {
     private lateinit var cbAlertSound: CheckBox
     private lateinit var cbAlertOverlay: CheckBox
     private lateinit var cbAlertBackground: CheckBox
+    private lateinit var cbAlertVibration: CheckBox
+    private lateinit var btnToggleAlerts: Button
     private lateinit var chartHeartRate: HeartRateChartView
     private lateinit var headerChart: TextView
     private lateinit var headerLiveReadings: TextView
@@ -68,8 +70,7 @@ class MainActivity : Activity() {
     private lateinit var alertOptionsContainer: View
     private lateinit var uiPrefs: android.content.SharedPreferences
     private var backgroundAlertEnabled = false
-    private lateinit var ruleAdapter: ArrayAdapter<String>
-    private val ruleLabels = mutableListOf<String>()
+    private lateinit var ruleAdapter: RuleAdapter
 
     private val liveReadings = ArrayDeque<String>()
     private val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.US)
@@ -200,6 +201,8 @@ class MainActivity : Activity() {
         cbAlertSound = findViewById(R.id.cbAlertSound)
         cbAlertOverlay = findViewById(R.id.cbAlertOverlay)
         cbAlertBackground = findViewById(R.id.cbAlertBackground)
+        cbAlertVibration = findViewById(R.id.cbAlertVibration)
+        btnToggleAlerts = findViewById(R.id.btnToggleAlerts)
         chartHeartRate = findViewById(R.id.chartHeartRate)
         headerChart = findViewById(R.id.headerChart)
         headerLiveReadings = findViewById(R.id.headerLiveReadings)
@@ -212,9 +215,9 @@ class MainActivity : Activity() {
         setupAlertOptions()
         applyWindowInsets()
 
-        ruleAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, ruleLabels)
+        ruleAdapter = RuleAdapter(this, ::toggleRule, ::deleteRule)
         lvRules.adapter = ruleAdapter
-        lvRules.setOnItemClickListener { _, _, position, _ -> removeRuleAt(position) }
+        lvRules.emptyView = findViewById(R.id.tvNoRules)
         refreshRules()
 
         listAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_activated_1, deviceNames)
@@ -467,12 +470,21 @@ class MainActivity : Activity() {
         Toast.makeText(this, getString(R.string.rule_added, bpm, period), Toast.LENGTH_SHORT).show()
     }
 
-    private fun removeRuleAt(position: Int) {
+    private fun deleteRule(rule: HeartRateService.AlertRule) {
         val service = heartRateService ?: return
-        val rule = service.getRules().getOrNull(position) ?: return
         service.removeRule(rule.bpm)
         refreshRules()
         Toast.makeText(this, getString(R.string.rule_removed, rule.bpm), Toast.LENGTH_SHORT).show()
+    }
+
+    /** Temporarily switch a single rule off (or back on) without deleting it. */
+    private fun toggleRule(rule: HeartRateService.AlertRule) {
+        val service = heartRateService ?: return
+        val enabled = !rule.enabled
+        service.setRuleEnabled(rule.bpm, enabled)
+        refreshRules()
+        val message = if (enabled) R.string.rule_enabled_toast else R.string.rule_disabled_toast
+        Toast.makeText(this, getString(message, rule.bpm), Toast.LENGTH_SHORT).show()
     }
 
     /**
@@ -534,6 +546,32 @@ class MainActivity : Activity() {
             service.setSoundEnabled(cbAlertSound.isChecked)
         }
 
+        cbAlertVibration.setOnClickListener {
+            val service = heartRateService
+            if (service == null) {
+                cbAlertVibration.isChecked = !cbAlertVibration.isChecked
+                Toast.makeText(this, R.string.service_not_ready, Toast.LENGTH_SHORT).show()
+                startAndBindService()
+                return@setOnClickListener
+            }
+            service.setVibrationEnabled(cbAlertVibration.isChecked)
+        }
+
+        btnToggleAlerts.setOnClickListener {
+            val service = heartRateService
+            if (service == null) {
+                Toast.makeText(this, R.string.service_not_ready, Toast.LENGTH_SHORT).show()
+                startAndBindService()
+                return@setOnClickListener
+            }
+            val enabled = !service.areAlertsEnabled()
+            service.setAlertsEnabled(enabled)
+            updateAlertsToggle(enabled)
+            val message = if (enabled) R.string.alerts_resumed_toast else R.string.alerts_paused_toast
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+            if (!enabled) applyAlertBackground(false)
+        }
+
         cbAlertOverlay.setOnClickListener {
             val service = heartRateService
             if (service == null) {
@@ -568,10 +606,16 @@ class MainActivity : Activity() {
     private fun refreshAlertOptions() {
         val service = heartRateService ?: return
         cbAlertSound.isChecked = service.isSoundEnabled()
+        cbAlertVibration.isChecked = service.isVibrationEnabled()
+        updateAlertsToggle(service.areAlertsEnabled())
         cbAlertOverlay.isChecked = service.isOverlayEnabled()
         backgroundAlertEnabled = service.isBackgroundEnabled()
         cbAlertBackground.isChecked = backgroundAlertEnabled
         if (!backgroundAlertEnabled) applyAlertBackground(false)
+    }
+
+    private fun updateAlertsToggle(enabled: Boolean) {
+        btnToggleAlerts.setText(if (enabled) R.string.alerts_pause else R.string.alerts_resume)
     }
 
     private fun applyAlertBackground(exceeded: Boolean) {
@@ -613,14 +657,8 @@ class MainActivity : Activity() {
     /** Re-render the rule list and the threshold summary from the service state. */
     private fun refreshRules() {
         val rules = heartRateService?.getRules().orEmpty()
-        ruleLabels.clear()
-        if (rules.isEmpty()) {
-            ruleLabels.add(getString(R.string.no_rules))
-        } else {
-            rules.forEach { ruleLabels.add(getString(R.string.rule_item, it.bpm, it.periodMs)) }
-        }
-        ruleAdapter.notifyDataSetChanged()
-        updateThresholdInfo(rules.firstOrNull()?.bpm ?: 0)
+        ruleAdapter.submit(rules)
+        updateThresholdInfo(rules.firstOrNull { it.enabled }?.bpm ?: 0)
     }
 
     private fun updateThresholdInfo(threshold: Int) {

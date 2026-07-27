@@ -12,9 +12,14 @@
     <string name="threshold_label">Vibration threshold (BPM)</string>
     <string name="threshold_hint">BPM e.g. 100</string>
     <string name="vibration_period_hint">Cycle ms e.g. 1000</string>
-    <string name="threshold_rules">Threshold rules (tap to remove)</string>
+    <string name="threshold_rules">Threshold rules</string>
+    <string name="rule_enable">Enable</string>
+    <string name="rule_disable">Disable</string>
+    <string name="rule_delete">Delete</string>
+    <string name="rule_enabled_toast">Rule enabled: &gt; %d BPM</string>
+    <string name="rule_disabled_toast">Rule disabled: &gt; %d BPM</string>
     <string name="add">Add</string>
-    <string name="rule_item">&gt; %1$d BPM  •  vibrate every %2$d ms</string>
+    <string name="rule_item">&gt; %1$d BPM  •  alert every %2$d ms</string>
     <string name="rule_added">Rule added: &gt; %1$d BPM every %2$d ms</string>
     <string name="rule_removed">Rule removed: &gt; %d BPM</string>
     <string name="no_rules">No threshold rule configured</string>
@@ -59,6 +64,11 @@
     <string name="alert_option_sound">Play an alert tone at the vibration frequency</string>
     <string name="alert_option_overlay">Show a border around the screen</string>
     <string name="alert_option_background">Change the app background colour</string>
+    <string name="alert_option_vibration">Vibrate</string>
+    <string name="alerts_pause">Pause all alerts</string>
+    <string name="alerts_resume">Resume alerts</string>
+    <string name="alerts_paused_toast">Alerts paused</string>
+    <string name="alerts_resumed_toast">Alerts resumed</string>
     <string name="alert_sound_unavailable">Alert tone unavailable on this device</string>
     <string name="overlay_permission_required">Allow \"display over other apps\" to show the alert border</string>
 
