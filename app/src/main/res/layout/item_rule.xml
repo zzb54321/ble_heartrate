@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One threshold rule: description plus enable/disable and delete actions. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingStart="8dp"
+    android:paddingEnd="4dp"
+    android:paddingTop="2dp"
+    android:paddingBottom="2dp">
+
+    <TextView
+        android:id="@+id/tvRule"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="13sp"
+        android:textColor="#424242"
+        android:maxLines="2"
+        android:ellipsize="end" />
+
+    <Button
+        android:id="@+id/btnRuleToggle"
+        android:layout_width="wrap_content"
+        android:layout_height="40dp"
+        android:minWidth="72dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:textSize="12sp"
+        android:text="@string/rule_disable" />
+
+    <Button
+        android:id="@+id/btnRuleDelete"
+        android:layout_width="wrap_content"
+        android:layout_height="40dp"
+        android:minWidth="60dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:textSize="12sp"
+        android:text="@string/rule_delete" />
+
+</LinearLayout>
