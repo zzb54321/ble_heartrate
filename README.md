@@ -8,7 +8,9 @@ supports a configurable vibration threshold, and can run in the background as a 
 - **BLE Scan** — Discovers nearby BLE devices and highlights devices that advertise the standard Heart Rate Service (UUID `0x180D`)
 - **Heart Rate Display** — Shows the live heart rate value in BPM; turns orange when the threshold is exceeded
 - **Vibration Threshold** — Set a BPM limit; the phone vibrates continuously whenever the heart rate exceeds the threshold and stops when it falls back below
-- **Optional Alerts** — Independently switchable channels that trigger while the heart rate is above a threshold: vibration, an alarm tone that beeps at the configured alert frequency, a red border drawn around the screen (requires the "display over other apps" permission), and an alerting app background colour
+- **Optional Alerts** — Independently switchable channels that trigger while the heart rate is above a threshold: vibration, an alarm tone that beeps at the configured alert frequency, a red border drawn around the screen (requires the "display over other apps" permission), and a blinking red app background
+- **Selectable Alert Tone** — Several alarm tones can be picked from a drop-down shown next to the alert tone switch; the choice is remembered
+- **Quick Reconnect** — The last connected device is shown above the device list; tapping it reconnects immediately without scanning
 - **Rule Management** — Every threshold rule can be temporarily disabled or deleted from its list row, and a single button pauses or resumes all alerts without touching the rules
 - **Heart Rate Chart** — A collapsible line chart plots the most recent samples together with a dashed threshold reference line
 - **Scrollable, Collapsible UI** — The whole screen scrolls, and the chart, the live log and the alert options can be collapsed; the state is remembered between launches

@@ -33,6 +33,7 @@ import android.widget.ListView
 import android.widget.TextView
 import android.view.View
 import android.widget.ScrollView
+import android.widget.Spinner
 import android.widget.Toast
 import java.io.PrintWriter
 import java.io.StringWriter
@@ -59,6 +60,8 @@ class MainActivity : Activity() {
     private lateinit var etVibrationPeriod: EditText
     private lateinit var lvRules: ListView
     private lateinit var cbAlertSound: CheckBox
+    private lateinit var spAlertTone: Spinner
+    private lateinit var tvLastDevice: TextView
     private lateinit var cbAlertOverlay: CheckBox
     private lateinit var cbAlertBackground: CheckBox
     private lateinit var cbAlertVibration: CheckBox
@@ -70,6 +73,17 @@ class MainActivity : Activity() {
     private lateinit var alertOptionsContainer: View
     private lateinit var uiPrefs: android.content.SharedPreferences
     private var backgroundAlertEnabled = false
+    private var backgroundBlinkOn = false
+    private val blinkHandler = Handler(Looper.getMainLooper())
+    private val blinkRunnable = object : Runnable {
+        override fun run() {
+            backgroundBlinkOn = !backgroundBlinkOn
+            rootContainer.setBackgroundColor(
+                Color.parseColor(if (backgroundBlinkOn) COLOR_BACKGROUND_ALERT else COLOR_BACKGROUND_NORMAL)
+            )
+            blinkHandler.postDelayed(this, BACKGROUND_BLINK_INTERVAL_MS)
+        }
+    }
     private lateinit var ruleAdapter: RuleAdapter
 
     private val liveReadings = ArrayDeque<String>()
@@ -100,7 +114,9 @@ class MainActivity : Activity() {
         private const val PRIORITY_DEVICE_KEYWORD = "vivo"
         private const val REQUEST_OVERLAY_PERMISSION = 1002
         private const val COLOR_BACKGROUND_NORMAL = "#F5F5F5"
-        private const val COLOR_BACKGROUND_ALERT = "#FFCDD2"
+        private const val COLOR_BACKGROUND_ALERT = "#F44336"
+        /** Half period of the alerting background blink. */
+        private const val BACKGROUND_BLINK_INTERVAL_MS = 500L
         private const val UI_PREF_NAME = "ble_heartrate_ui_prefs"
         private const val PREF_CHART_EXPANDED = "chart_expanded"
         private const val PREF_LOG_EXPANDED = "log_expanded"
@@ -114,6 +130,7 @@ class MainActivity : Activity() {
             bound = true
             refreshRules()
             refreshAlertOptions()
+            refreshLastDevice()
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -199,6 +216,8 @@ class MainActivity : Activity() {
         etVibrationPeriod = findViewById(R.id.etVibrationPeriod)
         lvRules = findViewById(R.id.lvRules)
         cbAlertSound = findViewById(R.id.cbAlertSound)
+        spAlertTone = findViewById(R.id.spAlertTone)
+        tvLastDevice = findViewById(R.id.tvLastDevice)
         cbAlertOverlay = findViewById(R.id.cbAlertOverlay)
         cbAlertBackground = findViewById(R.id.cbAlertBackground)
         cbAlertVibration = findViewById(R.id.cbAlertVibration)
@@ -248,6 +267,7 @@ class MainActivity : Activity() {
             // scan is stopped first — the discovered list is kept intact.
             if (scanning) stopScan(keepStatus = true)
             service.connectToDevice(device)
+            refreshLastDevice()
             tvStatus.text = getString(R.string.connecting)
         }
 
@@ -256,6 +276,9 @@ class MainActivity : Activity() {
         }
 
         btnSetThreshold.setOnClickListener { addRuleFromInput() }
+
+        tvLastDevice.setOnClickListener { connectToLastDevice() }
+        refreshLastDevice()
 
         // On Android 14+, startForeground() with connectedDevice type requires BLUETOOTH_CONNECT
         // to be granted; defer service startup until after permissions are obtained.
@@ -433,6 +456,64 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Show the previously connected device so it can be reconnected with one tap. */
+    private fun refreshLastDevice() {
+        val name = heartRateService?.lastDeviceName()
+        tvLastDevice.text = if (name.isNullOrBlank()) {
+            getString(R.string.last_device_none)
+        } else {
+            getString(R.string.last_device, name)
+        }
+    }
+
+    /** Reconnect directly to the stored device without scanning first. */
+    @SuppressLint("MissingPermission")
+    private fun connectToLastDevice() {
+        val service = heartRateService
+        if (service == null) {
+            Toast.makeText(this, R.string.service_not_ready, Toast.LENGTH_SHORT).show()
+            startAndBindService()
+            return
+        }
+        val address = service.lastDeviceAddress()
+        if (address.isNullOrBlank()) {
+            Toast.makeText(this, R.string.last_device_unavailable, Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!hasRequiredPermissions()) {
+            Toast.makeText(this, R.string.permissions_required, Toast.LENGTH_SHORT).show()
+            checkAndRequestPermissions()
+            return
+        }
+        val adapter = resolveBluetoothAdapter()
+        if (adapter == null || !adapter.isEnabled) {
+            Toast.makeText(this, R.string.enable_bluetooth, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val device = try {
+            adapter.getRemoteDevice(address)
+        } catch (_: IllegalArgumentException) {
+            null
+        }
+        if (device == null) {
+            Toast.makeText(this, R.string.last_device_unavailable, Toast.LENGTH_SHORT).show()
+            return
+        }
+        // Connecting while scanning is unreliable on many chipsets.
+        if (scanning) stopScan(keepStatus = true)
+        selectedDevice = device
+        service.connectToDevice(device)
+        refreshLastDevice()
+        val label = service.lastDeviceName() ?: address
+        tvStatus.text = getString(R.string.connecting_last_device, label)
+    }
+
+    private fun resolveBluetoothAdapter(): BluetoothAdapter? {
+        @Suppress("DEPRECATION")
+        val manager = getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
+        return manager?.adapter?.also { bluetoothAdapter = it } ?: bluetoothAdapter
+    }
+
     private fun addRuleFromInput() {
         val bpm = etThreshold.text.toString().trim().toIntOrNull()
         if (bpm == null || bpm <= 0) {
@@ -535,6 +616,8 @@ class MainActivity : Activity() {
     }
 
     private fun setupAlertOptions() {
+        setupToneSpinner()
+
         cbAlertSound.setOnClickListener {
             val service = heartRateService
             if (service == null) {
@@ -602,10 +685,31 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Populate the alert tone drop-down and forward the selection to the service. */
+    private fun setupToneSpinner() {
+        val labels = resources.getStringArray(R.array.alert_tone_names).toList()
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, labels)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spAlertTone.adapter = adapter
+        spAlertTone.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: android.widget.AdapterView<*>?,
+                view: View?,
+                position: Int,
+                id: Long
+            ) {
+                heartRateService?.setToneIndex(position)
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+        }
+    }
+
     /** Mirror the option state persisted by the service into the checkboxes. */
     private fun refreshAlertOptions() {
         val service = heartRateService ?: return
         cbAlertSound.isChecked = service.isSoundEnabled()
+        spAlertTone.setSelection(service.getToneIndex())
         cbAlertVibration.isChecked = service.isVibrationEnabled()
         updateAlertsToggle(service.areAlertsEnabled())
         cbAlertOverlay.isChecked = service.isOverlayEnabled()
@@ -618,13 +722,19 @@ class MainActivity : Activity() {
         btnToggleAlerts.setText(if (enabled) R.string.alerts_pause else R.string.alerts_resume)
     }
 
+    /**
+     * While alerting, the background blinks red so the alert is noticeable even from
+     * the corner of the eye; otherwise the neutral background is restored.
+     */
     private fun applyAlertBackground(exceeded: Boolean) {
-        val color = if (backgroundAlertEnabled && exceeded) {
-            COLOR_BACKGROUND_ALERT
+        blinkHandler.removeCallbacks(blinkRunnable)
+        if (backgroundAlertEnabled && exceeded) {
+            backgroundBlinkOn = false
+            blinkHandler.post(blinkRunnable)
         } else {
-            COLOR_BACKGROUND_NORMAL
+            backgroundBlinkOn = false
+            rootContainer.setBackgroundColor(Color.parseColor(COLOR_BACKGROUND_NORMAL))
         }
-        rootContainer.setBackgroundColor(Color.parseColor(color))
     }
 
     private fun canDrawOverlays(): Boolean =
@@ -850,5 +960,6 @@ class MainActivity : Activity() {
             // not registered
         }
         if (scanning) stopScan()
+        blinkHandler.removeCallbacks(blinkRunnable)
     }
 }

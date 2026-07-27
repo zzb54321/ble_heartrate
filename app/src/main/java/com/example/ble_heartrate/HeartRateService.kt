@@ -61,6 +61,9 @@ class HeartRateService : Service() {
         private const val PREF_OVERLAY_ENABLED = "alert_overlay_enabled"
         private const val PREF_BACKGROUND_ENABLED = "alert_background_enabled"
         private const val PREF_VIBRATION_ENABLED = "alert_vibration_enabled"
+        private const val PREF_TONE_INDEX = "alert_tone_index"
+        private const val PREF_LAST_DEVICE_ADDRESS = "last_device_address"
+        private const val PREF_LAST_DEVICE_NAME = "last_device_name"
         private const val DEFAULT_THRESHOLD = 100
 
         /** Bounds for the configurable vibration period (one buzz + one pause). */
@@ -82,6 +85,19 @@ class HeartRateService : Service() {
          * previously used TONE_PROP_BEEP.
          */
         private const val ALERT_TONE_TYPE = ToneGenerator.TONE_CDMA_HIGH_L
+
+        /**
+         * Selectable alert tones; the user picks one from the drop-down next to the
+         * "alert tone" option. The first entry is the default sharp beep.
+         */
+        val ALERT_TONES: List<Int> = listOf(
+            ALERT_TONE_TYPE,
+            ToneGenerator.TONE_CDMA_ABBR_ALERT,
+            ToneGenerator.TONE_CDMA_ALERT_CALL_GUARD,
+            ToneGenerator.TONE_CDMA_EMERGENCY_RINGBACK,
+            ToneGenerator.TONE_SUP_RINGTONE,
+            ToneGenerator.TONE_PROP_BEEP2
+        )
 
         fun heartRateServiceParcelUuid(): ParcelUuid = ParcelUuid.fromString(HEART_RATE_SERVICE_UUID)
     }
@@ -140,6 +156,7 @@ class HeartRateService : Service() {
     @Volatile private var activeRule: AlertRule? = null
 
     @Volatile private var soundEnabled = false
+    @Volatile private var toneIndex = 0
     @Volatile private var vibrationEnabled = true
     /** Temporary master switch; not persisted so alerts resume after a restart. */
     @Volatile private var alertsEnabled = true
@@ -210,9 +227,30 @@ class HeartRateService : Service() {
     /** Connect to the given BLE device and subscribe to its heart-rate notifications. */
     @SuppressLint("MissingPermission")
     fun connectToDevice(device: BluetoothDevice) {
+        rememberDevice(device)
         closeGatt()
         gatt = device.connectGatt(this, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
     }
+
+    /** Persist the device so it can be reconnected with a single tap next time. */
+    @SuppressLint("MissingPermission")
+    private fun rememberDevice(device: BluetoothDevice) {
+        val name = try {
+            device.name
+        } catch (_: SecurityException) {
+            null
+        } ?: device.address
+        prefs.edit()
+            .putString(PREF_LAST_DEVICE_ADDRESS, device.address)
+            .putString(PREF_LAST_DEVICE_NAME, name)
+            .apply()
+    }
+
+    /** Address of the most recently connected device (null when there is none). */
+    fun lastDeviceAddress(): String? = prefs.getString(PREF_LAST_DEVICE_ADDRESS, null)
+
+    /** Display name of the most recently connected device (null when there is none). */
+    fun lastDeviceName(): String? = prefs.getString(PREF_LAST_DEVICE_NAME, null)
 
     /** Disconnect from the currently connected device. */
     fun disconnect() {
@@ -293,6 +331,17 @@ class HeartRateService : Service() {
         soundEnabled = enabled
         prefs.edit().putBoolean(PREF_SOUND_ENABLED, enabled).apply()
         if (!enabled) stopAlertTones()
+    }
+
+    /** Index into [ALERT_TONES] of the currently selected alert tone. */
+    fun getToneIndex(): Int = toneIndex
+
+    /** Select the alert tone used while alerting. */
+    fun setToneIndex(index: Int) {
+        if (index !in ALERT_TONES.indices) return
+        toneIndex = index
+        prefs.edit().putInt(PREF_TONE_INDEX, index).apply()
+        stopAlertTones()
     }
 
     /** Enable/disable the alert vibration. */
@@ -505,7 +554,7 @@ class HeartRateService : Service() {
             alertHandler.postDelayed({
                 if (isVibrating && soundEnabled) {
                     try {
-                        tone.startTone(ALERT_TONE_TYPE, on.toInt())
+                        tone.startTone(currentToneType(), on.toInt())
                     } catch (_: Exception) {
                         // Tone generator may have been released concurrently.
                     }
@@ -514,6 +563,10 @@ class HeartRateService : Service() {
             delay += on + off
         }
     }
+
+    /** Tone constant of the currently selected alert tone. */
+    private fun currentToneType(): Int =
+        ALERT_TONES.getOrElse(toneIndex) { ALERT_TONE_TYPE }
 
     private fun stopAlertTones() {
         alertHandler.removeCallbacksAndMessages(null)
@@ -734,6 +787,7 @@ class HeartRateService : Service() {
         overlayEnabled = prefs.getBoolean(PREF_OVERLAY_ENABLED, false)
         backgroundEnabled = prefs.getBoolean(PREF_BACKGROUND_ENABLED, false)
         vibrationEnabled = prefs.getBoolean(PREF_VIBRATION_ENABLED, true)
+        toneIndex = prefs.getInt(PREF_TONE_INDEX, 0).coerceIn(0, ALERT_TONES.size - 1)
     }
 
     private fun saveRules() {

@@ -200,12 +200,27 @@
                 android:text="@string/alert_option_vibration"
                 android:textSize="13sp" />
 
-            <CheckBox
-                android:id="@+id/cbAlertSound"
+            <!-- Sound option and tone picker share one row to save vertical space -->
+            <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="@string/alert_option_sound"
-                android:textSize="13sp" />
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <CheckBox
+                    android:id="@+id/cbAlertSound"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/alert_option_sound"
+                    android:textSize="13sp" />
+
+                <Spinner
+                    android:id="@+id/spAlertTone"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:contentDescription="@string/alert_tone_label" />
+            </LinearLayout>
 
             <CheckBox
                 android:id="@+id/cbAlertOverlay"
@@ -254,6 +269,18 @@
                 android:text="@string/disconnect"
                 android:layout_marginStart="4dp" />
         </LinearLayout>
+
+        <!-- Last connected device — tap to reconnect -->
+        <TextView
+            android:id="@+id/tvLastDevice"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/last_device_none"
+            android:textSize="13sp"
+            android:textColor="#1565C0"
+            android:background="#FFFFFF"
+            android:padding="8dp"
+            android:layout_marginBottom="12dp" />
 
         <!-- Device List -->
         <TextView

@@ -31,6 +31,10 @@
     <string name="connect">Connect</string>
     <string name="disconnect">Disconnect</string>
     <string name="available_devices">Available BLE Devices</string>
+    <string name="last_device_none">Last device: none</string>
+    <string name="last_device">Last device: %s — tap to connect</string>
+    <string name="last_device_unavailable">Last device is unavailable</string>
+    <string name="connecting_last_device">Connecting to %s…</string>
     <string name="device_selected">Selected: %s</string>
     <string name="device_list_item">%1$s • %2$s (%3$d dBm)</string>
     <string name="ble_device_tag">BLE</string>
@@ -61,7 +65,14 @@
 
     <!-- Optional alerts -->
     <string name="alert_options">Alert options</string>
-    <string name="alert_option_sound">Play an alert tone at the vibration frequency</string>
+    <string name="alert_option_sound">Alert tone</string>
+    <string name="alert_tone_label">Alert tone</string>
+    <string name="alert_tone_sharp">Sharp beep</string>
+    <string name="alert_tone_abbr_alert">Short alert</string>
+    <string name="alert_tone_call_guard">Call guard</string>
+    <string name="alert_tone_emergency">Emergency</string>
+    <string name="alert_tone_ringtone">Ringtone</string>
+    <string name="alert_tone_double_beep">Double beep</string>
     <string name="alert_option_overlay">Show a border around the screen</string>
     <string name="alert_option_background">Change the app background colour</string>
     <string name="alert_option_vibration">Vibrate</string>
@@ -71,6 +82,16 @@
     <string name="alerts_resumed_toast">Alerts resumed</string>
     <string name="alert_sound_unavailable">Alert tone unavailable on this device</string>
     <string name="overlay_permission_required">Allow \"display over other apps\" to show the alert border</string>
+
+    <!-- Alert tone drop-down; order must match HeartRateService.ALERT_TONES -->
+    <string-array name="alert_tone_names">
+        <item>@string/alert_tone_sharp</item>
+        <item>@string/alert_tone_abbr_alert</item>
+        <item>@string/alert_tone_call_guard</item>
+        <item>@string/alert_tone_emergency</item>
+        <item>@string/alert_tone_ringtone</item>
+        <item>@string/alert_tone_double_beep</item>
+    </string-array>
 
     <!-- Notification -->
     <string name="notification_channel_name">Heart Rate Monitor</string>
